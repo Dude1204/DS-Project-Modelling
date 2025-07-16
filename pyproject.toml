@@ -1,0 +1,18 @@
+[project]
+name = "football-highlight-maker"
+version = "0.1.0"
+description = "Automated football match highlight generator with score overlays"
+authors = [
+    {name = "Yaw", email = "yaw.s.nuako@gmail.com"}
+]
+dependencies = [
+    "moviepy",
+    "opencv-python",
+    "pytesseract",
+    "numpy"
+]
+requires-python = ">=3.8"
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
