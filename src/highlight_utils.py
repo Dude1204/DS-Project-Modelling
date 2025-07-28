@@ -101,7 +101,48 @@ def create_team_intro(non_bibs_team, bibs_team):
 
     return team_intro
 
-def create_highlight_clip(path,highlights,non_bibs_team, bibs_team):
+def create_summary_clip(highlights, combined=False):
+        # === Step 1: Count goals and assists ===
+
+    goals = defaultdict(int)
+    assists = defaultdict(int)
+
+    for h in highlights:
+        if "scored" in h:
+            goals[h["scored"]] += 1
+        if "assist" in h:
+            assists[h["assist"]] += 1
+
+    # === Step 2: Build summary text ===
+
+    summary_lines = ["  Player Summary", ""]
+    if combined:
+        summary_lines = ["  Combined Goals and Assists", ""]
+
+    # Combine goals and assists into a sortable list
+    player_stats = []
+    for player in set(goals.keys()) | set(assists.keys()):
+        g = goals[player]
+        a = assists[player]
+        player_stats.append((g, a, player))  # Sort by goals, then assists
+
+    # Sort descending by goals, then assists
+    player_stats.sort(reverse=True)
+
+    # Format summary lines
+    for g, a, player in player_stats:
+        summary_lines.append(f"{player}: {g} goal{'s' if g != 1 else ''}, {a} assist{'s' if a != 1 else ''}")
+
+    summary_text = "\n".join(summary_lines)
+
+    # === Step 3: Create summary clip ===
+    summary_clip = TextClip(
+        summary_text, fontsize=36, color='white', font="Arial", bg_color='black', size=[1280, 720]
+    ).set_duration(15).set_position("center")
+
+    return summary_clip
+
+def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0):
 
     # === Configure your match video ===
     video = VideoFileClip(path)
@@ -117,8 +158,8 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team):
     tracker = match_tracker(team_dict["n"], team_dict["b"])
     next(tracker) 
     for i, h in enumerate(highlights):
-        start = mm_ss_to_seconds(h["start"] if "start" in h else h["time"]) - 10
-        end = mm_ss_to_seconds(h["end"] if "end" in h else (h["time"] )) + 5
+        start = mm_ss_to_seconds(h["start"] if "start" in h else h["time"]) - 10 - extend_clips
+        end = mm_ss_to_seconds(h["end"] if "end" in h else (h["time"] )) + 5 + extend_clips
         clip = video.subclip(start, end)
         
         # Create score text overlay
@@ -155,49 +196,28 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team):
         composite = CompositeVideoClip([clip, txt, timer_txt])
         highlight_clips.append(composite)
 
-    # === Step 1: Count goals and assists ===
-
-    goals = defaultdict(int)
-    assists = defaultdict(int)
-
-    for h in highlights:
-        if "scored" in h:
-            goals[h["scored"]] += 1
-        if "assist" in h:
-            assists[h["assist"]] += 1
-
-    # === Step 2: Build summary text ===
-
-    summary_lines = ["  Player Summary", ""]
-
-    # Combine goals and assists into a sortable list
-    player_stats = []
-    for player in set(goals.keys()) | set(assists.keys()):
-        g = goals[player]
-        a = assists[player]
-        player_stats.append((g, a, player))  # Sort by goals, then assists
-
-    # Sort descending by goals, then assists
-    player_stats.sort(reverse=True)
-
-    # Format summary lines
-    for g, a, player in player_stats:
-        summary_lines.append(f"{player}: {g} goal{'s' if g != 1 else ''}, {a} assist{'s' if a != 1 else ''}")
-
-    summary_text = "\n".join(summary_lines)
-
-    # === Step 3: Create summary clip ===
-    summary_clip = TextClip(
-        summary_text, fontsize=36, color='white', font="Arial", bg_color='black', size=video.size
-    ).set_duration(15).set_position("center")
-
     scoreboard_clip = TextClip(
         final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size
     ).set_duration(10).set_position("center")
+
+    summary_clip = create_summary_clip(highlights)
 
         
     # === Concatenate all highlight clips ===
 
     final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip])
     save_to = path.replace("..","").replace("\\","").replace(".mp4",f" Highlights - {str(dt.datetime.now())[:10]}.mp4")
+    final_highlights.write_videofile(save_to, codec="libx264", fps=25)
+
+
+def combine_highlights(path1,path2,highlight1,highlight2):
+    """
+    Combines highlights from a list of dictionaries into a single video.
+    """
+    # === Configure your match video ===
+    video1 = VideoFileClip(path1)
+    video2 = VideoFileClip(path2)
+    summary_clip = create_summary_clip(highlight1 + highlight2)
+    final_highlights = concatenate_videoclips([video1,video2, summary_clip])
+    save_to = f"Combined Highlights - {str(dt.datetime.now())[:10]}.mp4"
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
