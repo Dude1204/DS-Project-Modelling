@@ -138,7 +138,8 @@ def create_summary_clip(highlights, combined=False):
     # === Step 3: Create summary clip ===
     summary_clip = TextClip(
         summary_text, fontsize=36, color='white', font="Arial", bg_color='black', size=[1280, 720]
-    ).set_duration(15).set_position("center")
+    ).set_duration(15).set_position("center").without_audio()
+
 
     return summary_clip
 
@@ -169,13 +170,15 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
     ))
             final_scoreboard = text
             text_duration = h["text_duration"] if "text_duration" in h else 5
+            bg_color='black'
         else:
             text = h["text"]
             text_duration = h["text_duration"] if "text_duration" in h else clip.duration
+            bg_color=None
 
         
         txt = TextClip(
-            text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+            text, fontsize=36, color='white', font="Arial-Bold", bg_color=bg_color
         ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration)
 
         # Function to generate timer frame
@@ -217,7 +220,17 @@ def combine_highlights(path1,path2,highlight1,highlight2):
     # === Configure your match video ===
     video1 = VideoFileClip(path1)
     video2 = VideoFileClip(path2)
-    summary_clip = create_summary_clip(highlight1 + highlight2)
+    summary_clip = create_summary_clip(highlight1 + highlight2, True)
     final_highlights = concatenate_videoclips([video1,video2, summary_clip])
     save_to = f"Combined Highlights - {str(dt.datetime.now())[:10]}.mp4"
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
+
+
+def merge_highlight_dicts(highlights, extend_clips=0):
+    overlaps = {}
+    for i, h in enumerate(highlights):
+        start = mm_ss_to_seconds(h["start"] if "start" in h else h["time"]) - 10 - extend_clips
+        end = mm_ss_to_seconds(h["end"] if "end" in h else (h["time"] )) + 5 + extend_clips
+        overlaps[i] = [start,end]
+    
+    return overlaps
