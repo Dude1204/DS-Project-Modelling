@@ -3,6 +3,22 @@ from collections import defaultdict
 import datetime as dt
 from moviepy.config import change_settings
 
+from moviepy.editor import VideoFileClip, concatenate_videoclips, vfx
+
+from PIL import Image
+import numpy as np
+import math
+
+from moviepy.editor import VideoClip
+from PIL import Image
+import numpy as np
+import math
+
+from moviepy.editor import VideoClip
+from PIL import Image
+import numpy as np
+import math
+
 change_settings({
     "IMAGEMAGICK_BINARY": r"C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI\\magick.exe"
 })
@@ -14,7 +30,7 @@ def mm_ss_to_seconds(time_float):
     Example: 1.51 → 111 seconds (1 min + 51 sec)
     """
     minutes = int(time_float)
-    seconds = int(round((time_float - minutes) * 100))
+    seconds = time_float - minutes * 100
     return minutes * 60 + seconds
 
 
@@ -74,18 +90,19 @@ def format_team(team):
         lines.append(f"{p}{label}")
     return "\n".join(lines)
 
-def create_team_intro(non_bibs_team, bibs_team):
+def create_team_intro(non_bibs_team, bibs_team, game=1):
     # Video settings
     width, height = 1280, 720
     bg_color = 'black'
     duration = 5
 
     # Create team clips
-    text = format_team(non_bibs_team) + "\n\n" + format_team(bibs_team)
+    heading = f"Game {game}\n\n"
+    text = heading + format_team(non_bibs_team) + "\n\n" + format_team(bibs_team)
 
     txt_clip = TextClip(
         text,
-        fontsize=36,
+        fontsize=28,
         color='white',
         font="Arial",
         method="caption",
@@ -97,7 +114,7 @@ def create_team_intro(non_bibs_team, bibs_team):
     bg = ColorClip(size=(width, height), color=(0, 0, 0)).set_duration(duration)
 
     # Combine
-    team_intro = CompositeVideoClip([bg, txt_clip])
+    team_intro = CompositeVideoClip([bg, txt_clip]).without_audio()
 
     return team_intro
 
@@ -143,12 +160,12 @@ def create_summary_clip(highlights, combined=False):
 
     return summary_clip
 
-def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0):
+def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0,game=1):
 
     # === Configure your match video ===
     video = VideoFileClip(path)
 
-    team_intro = create_team_intro(non_bibs_team, bibs_team)
+    team_intro = create_team_intro(non_bibs_team, bibs_team,game)
 
     # === Create clips with score overlay ===
     highlight_clips = []
@@ -160,8 +177,18 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
     next(tracker) 
     for i, h in enumerate(highlights):
         start = mm_ss_to_seconds(h["start"] if "start" in h else h["time"]) - 10 - extend_clips
-        end = mm_ss_to_seconds(h["end"] if "end" in h else (h["time"] )) + 5 + extend_clips
+        if "end" in h:
+            end = mm_ss_to_seconds(h["end"]) + extend_clips
+        else:
+            end = mm_ss_to_seconds(h["time"]) + 5 + extend_clips
+
+        extra_time = (end - start - 15) if ("end" in h) and ("time" in h) else 0
         clip = video.subclip(start, end)
+
+        text_duration = h["text_duration"] if "text_duration" in h else 5
+
+        if "start" in h:
+            text_duration = clip.duration
         
         # Create score text overlay
 
@@ -169,39 +196,41 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
             text = tracker.send((team_dict[h["team"]], h["scored"], h["assist"] if "assist" in h else "", mm_ss_to_seconds(h["time"]) // 60
     ))
             final_scoreboard = text
-            text_duration = h["text_duration"] if "text_duration" in h else 5
-            bg_color='black'
+
         else:
             text = h["text"]
-            text_duration = h["text_duration"] if "text_duration" in h else clip.duration
-            bg_color=None
 
         
         txt = TextClip(
-            text, fontsize=36, color='white', font="Arial-Bold", bg_color=bg_color
-        ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration)
+            text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+        ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration - extra_time)
 
-        # Function to generate timer frame
-        def make_timer(t, start_time=start):
-            current_time = start_time + int(t)
-            minutes = current_time // 60
-            seconds = current_time % 60
-            txt_clip = TextClip(
-                f"{minutes}:{seconds:02d}",
-                fontsize=36, color='white', font="Arial-Bold", bg_color='black'
-            ).set_position(("left", "top")).set_duration(clip.duration)
-            
-            return txt_clip.get_frame(t)  # Return actual frame as NumPy array
 
-        # Create dynamic timer clip
-        timer_txt = VideoClip(make_timer, duration=clip.duration)
+        if "zoom" in h:
+            focal_x, focal_y = h["zoom"]
+            clip = create_replay_pause_zoom(video, start  + 10 + extend_clips, pause_duration=3, x=focal_x, y=focal_y)
+            composite = CompositeVideoClip([clip, txt])
+        else:
+            # Function to generate timer frame
+            def make_timer(t, start_time=start):
+                current_time = start_time + int(t)
+                minutes = current_time // 60
+                seconds = current_time % 60
+                txt_clip = TextClip(
+                    f"{minutes}:{seconds:02d}",
+                    fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+                ).set_position(("left", "top")).set_duration(clip.duration)
+                
+                return txt_clip.get_frame(t)  # Return actual frame as NumPy array
 
-        composite = CompositeVideoClip([clip, txt, timer_txt])
+            # Create dynamic timer clip
+            timer_txt = VideoClip(make_timer, duration=clip.duration)
+            composite = CompositeVideoClip([clip, txt, timer_txt])
         highlight_clips.append(composite)
 
     scoreboard_clip = TextClip(
         final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size
-    ).set_duration(10).set_position("center")
+    ).set_duration(10).set_position("center").without_audio()
 
     summary_clip = create_summary_clip(highlights)
 
@@ -234,3 +263,56 @@ def merge_highlight_dicts(highlights, extend_clips=0):
         overlaps[i] = [start,end]
     
     return overlaps
+
+
+def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.8, fps=25):
+    def make_frame(t):
+        img = Image.fromarray(image_clip.get_frame(t))
+        base_w, base_h = img.size
+
+        # Zoom scaling
+        scale = 1 + zoom_ratio * t
+        new_w = math.ceil(base_w * scale)
+        new_h = math.ceil(base_h * scale)
+        new_w += new_w % 2
+        new_h += new_h % 2
+
+        # Resize
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+
+        # Compute crop centered on (focal_x, focal_y)
+        x = int(focal_x * scale - base_w // 2)
+        y = int(focal_y * scale - base_h // 2)
+
+        # Clamp to image edges
+        x = max(0, min(x, new_w - base_w))
+        y = max(0, min(y, new_h - base_h))
+
+        img = img.crop((x, y, x + base_w, y + base_h))
+        return np.array(img)
+
+    return VideoClip(make_frame, duration=image_clip.duration).set_fps(fps)
+
+
+def create_replay_pause_zoom(video, start_time, end_time=0,
+                              pause_duration=3, x=0.5, y=0.5):
+
+    # Extract replay segment
+    if end_time == 0:
+        end_time = start_time + 1
+    replay_clip = video.subclip(start_time, end_time)
+
+    # Freeze last frame
+    pause_frame = replay_clip.to_ImageClip().set_duration(pause_duration)
+
+    width, height = pause_frame.size
+    focal_x = width * x  # right side
+    focal_y = height * y  # middle
+
+    zoomed = zoom_in_to_point(pause_frame.set_duration(pause_duration), focal_x, focal_y, fps=25)
+    # Zoom-in effect (animated or static — toggle as needed)
+
+    # Stitch replay, pause, zoomed frame
+    final_clip = concatenate_videoclips([pause_frame, zoomed])
+
+    return final_clip
