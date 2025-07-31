@@ -24,13 +24,13 @@ change_settings({
 })
 
 
-def mm_ss_to_seconds(time_float):
+def mm_ss_to_seconds(time_float,specific=False):
     """
     Converts time from MM.SS format to total seconds.
     Example: 1.51 → 111 seconds (1 min + 51 sec)
     """
     minutes = int(time_float)
-    seconds = time_float - minutes * 100
+    seconds = ((time_float - minutes) * 100) if specific else int((time_float - minutes) * 100)
     return minutes * 60 + seconds
 
 
@@ -90,32 +90,52 @@ def format_team(team):
         lines.append(f"{p}{label}")
     return "\n".join(lines)
 
+from moviepy.editor import TextClip, ColorClip, CompositeVideoClip
+
 def create_team_intro(non_bibs_team, bibs_team, game=1):
     # Video settings
     width, height = 1280, 720
     bg_color = 'black'
     duration = 5
 
-    # Create team clips
-    heading = f"Game {game}\n\n"
-    text = heading + format_team(non_bibs_team) + "\n\n" + format_team(bibs_team)
+    # Create clips for each team
+    left_text = format_team(non_bibs_team)
+    right_text = format_team(bibs_team)
 
-    txt_clip = TextClip(
-        text,
-        fontsize=28,
+    left_clip = TextClip(
+        left_text,
+        fontsize=48,
         color='white',
         font="Arial",
         method="caption",
-        size=(width - 100, None),
+        size=(width // 2 - 50, None),
         bg_color=bg_color
-    ).set_position("center").set_duration(duration)
+    ).set_position((50, height // 2 - 100)).set_duration(duration)
 
-    # Optional: solid background clip
+    right_clip = TextClip(
+        right_text,
+        fontsize=48,
+        color='white',
+        font="Arial",
+        method="caption",
+        size=(width // 2 - 50, None),
+        bg_color=bg_color
+    ).set_position((width // 2 + 50, height // 2 - 100)).set_duration(duration)
+
+    # Game heading
+    heading = TextClip(
+        f"Game {game}",
+        fontsize=60,
+        color='white',
+        font="Arial-Bold",
+        method="label"
+    ).set_position(("center", 50)).set_duration(duration)
+
+    # Background
     bg = ColorClip(size=(width, height), color=(0, 0, 0)).set_duration(duration)
 
-    # Combine
-    team_intro = CompositeVideoClip([bg, txt_clip]).without_audio()
-
+    # Compose final clip
+    team_intro = CompositeVideoClip([bg, heading, left_clip, right_clip]).without_audio()
     return team_intro
 
 def create_summary_clip(highlights, combined=False):
@@ -200,17 +220,19 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
         else:
             text = h["text"]
 
-        
-        txt = TextClip(
-            text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
-        ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration - extra_time)
-
 
         if "zoom" in h:
             focal_x, focal_y = h["zoom"]
-            clip = create_replay_pause_zoom(video, start  + 10 + extend_clips, pause_duration=3, x=focal_x, y=focal_y)
+            clip = create_replay_pause_zoom(video, mm_ss_to_seconds(h["time"],True), pause_duration=3, x=focal_x, y=focal_y)
+            txt = TextClip(
+                text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+                ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3)
+            
             composite = CompositeVideoClip([clip, txt])
         else:
+            txt = TextClip(
+                text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+                ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration - extra_time)
             # Function to generate timer frame
             def make_timer(t, start_time=start):
                 current_time = start_time + int(t)
@@ -293,7 +315,7 @@ def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.8, fps=25):
 
     return VideoClip(make_frame, duration=image_clip.duration).set_fps(fps)
 
-
+from moviepy.editor import ImageClip
 def create_replay_pause_zoom(video, start_time, end_time=0,
                               pause_duration=3, x=0.5, y=0.5):
 
@@ -312,7 +334,11 @@ def create_replay_pause_zoom(video, start_time, end_time=0,
     zoomed = zoom_in_to_point(pause_frame.set_duration(pause_duration), focal_x, focal_y, fps=25)
     # Zoom-in effect (animated or static — toggle as needed)
 
+    frozen_zoom = ImageClip(zoomed.get_frame(pause_duration)).set_duration(pause_duration)
+    
+    #frozen_zoom = zoomed.to_ImageClip().set_duration(pause_duration)
+
     # Stitch replay, pause, zoomed frame
-    final_clip = concatenate_videoclips([pause_frame, zoomed])
+    final_clip = concatenate_videoclips([pause_frame, zoomed, frozen_zoom])
 
     return final_clip
