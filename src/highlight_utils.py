@@ -146,7 +146,8 @@ def create_summary_clip(highlights, combined=False):
 
     for h in highlights:
         if "scored" in h:
-            goals[h["scored"]] += 1
+            if "OG" not in h["scored"]:
+                goals[h["scored"]] += 1
         if "assist" in h:
             assists[h["assist"]] += 1
 
@@ -196,19 +197,20 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
     tracker = match_tracker(team_dict["n"], team_dict["b"])
     next(tracker) 
     for i, h in enumerate(highlights):
-        start = mm_ss_to_seconds(h["start"] if "start" in h else h["time"]) - 10 - extend_clips
+        if "start" in h:
+            start = mm_ss_to_seconds(h["start"]) - extend_clips
+        else:
+            start = mm_ss_to_seconds(h["time"]) - 10 - extend_clips
+        
         if "end" in h:
             end = mm_ss_to_seconds(h["end"]) + extend_clips
         else:
             end = mm_ss_to_seconds(h["time"]) + 5 + extend_clips
 
-        extra_time = (end - start - 15) if ("end" in h) and ("time" in h) else 0
+        extra_time = max(0,(end - start - 15) if ("end" in h) and ("time" in h) else 0)
         clip = video.subclip(start, end)
 
         text_duration = h["text_duration"] if "text_duration" in h else 5
-
-        if "start" in h:
-            text_duration = clip.duration
         
         # Create score text overlay
 
@@ -219,6 +221,8 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
 
         else:
             text = h["text"]
+            if "Kick-off" in text:
+                text_duration = clip.duration
 
 
         if "zoom" in h:
@@ -229,9 +233,17 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
                 ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3)
             
             composite = CompositeVideoClip([clip, txt])
-        else:
+        elif "slow" in h:
+            focal_x, focal_y = h["slow"]
+            clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=0.5)
             txt = TextClip(
                 text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+                ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3)
+            
+            composite = CompositeVideoClip([clip, txt])
+        else:
+            txt = TextClip(
+                text, fontsize=36, color='white', font="Arial-Bold"
                 ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration - extra_time)
             # Function to generate timer frame
             def make_timer(t, start_time=start):
@@ -342,3 +354,42 @@ def create_replay_pause_zoom(video, start_time, end_time=0,
     final_clip = concatenate_videoclips([pause_frame, zoomed, frozen_zoom])
 
     return final_clip
+
+
+def zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=0.5):
+    """
+    Applies a zoom-in and slow-motion effect to a segment of the video.
+
+    Parameters:
+    - clip: MoviePy VideoFileClip object
+    - start_time: float, time in seconds where the effect starts
+    - duration: float, duration of the effect in seconds
+    - zoom_center: tuple (x, y), normalized coordinates (0 to 1) for zoom focal point
+    - zoom_factor: float, how much to zoom in (default 2.0)
+    - slowmo_factor: float, playback speed (0.5 = half speed)
+
+    Returns:
+    - Composite clip with zoom and slowmo effect applied to the segment
+    """
+
+    # Get original clip size
+    w, h = clip.size
+    cx, cy = focal_x, focal_y
+    center_x, center_y = int(cx * w), int(cy * h)
+
+    # Apply zoom by cropping and resizing
+    print(center_x, center_y, w, h, zoom_factor)
+    clip.write_videofile("save_to.mp4", codec="libx264", fps=25)
+    zoomed = (
+        clip
+        .crop(
+            x_center=center_x,
+            y_center=center_y,
+            width=w / zoom_factor,
+            height=h / zoom_factor
+        )
+        .resize((w, h))  # Resize back to original size
+        .fx(vfx.speedx, slowmo_factor)  # Apply slow motion
+    )
+
+    return zoomed
