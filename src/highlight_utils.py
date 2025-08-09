@@ -357,39 +357,25 @@ def create_replay_pause_zoom(video, start_time, end_time=0,
 
 
 def zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=0.5):
-    """
-    Applies a zoom-in and slow-motion effect to a segment of the video.
-
-    Parameters:
-    - clip: MoviePy VideoFileClip object
-    - start_time: float, time in seconds where the effect starts
-    - duration: float, duration of the effect in seconds
-    - zoom_center: tuple (x, y), normalized coordinates (0 to 1) for zoom focal point
-    - zoom_factor: float, how much to zoom in (default 2.0)
-    - slowmo_factor: float, playback speed (0.5 = half speed)
-
-    Returns:
-    - Composite clip with zoom and slowmo effect applied to the segment
-    """
-
-    # Get original clip size
     w, h = clip.size
-    cx, cy = focal_x, focal_y
-    center_x, center_y = int(cx * w), int(cy * h)
+    crop_w = w / zoom_factor
+    crop_h = h / zoom_factor
 
-    # Apply zoom by cropping and resizing
-    print(center_x, center_y, w, h, zoom_factor)
-    clip.write_videofile("save_to.mp4", codec="libx264", fps=25)
+    center_x = int(focal_x * w)
+    center_y = int(focal_y * h)
+
+    x1 = max(0, int(center_x - crop_w / 2))
+    y1 = max(0, int(center_y - crop_h / 2))
+
+    # Ensure crop doesn't exceed frame bounds
+    x1 = min(x1, w - int(crop_w))
+    y1 = min(y1, h - int(crop_h))
+
     zoomed = (
         clip
-        .crop(
-            x_center=center_x,
-            y_center=center_y,
-            width=w / zoom_factor,
-            height=h / zoom_factor
-        )
-        .resize((w, h))  # Resize back to original size
-        .fx(vfx.speedx, slowmo_factor)  # Apply slow motion
+        .crop(x1=x1, y1=y1, width=int(crop_w), height=int(crop_h))
+        .resize((w, h))
+        .fx(vfx.speedx, slowmo_factor)
     )
 
     return zoomed
