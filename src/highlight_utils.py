@@ -266,7 +266,7 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
         final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size
     ).set_duration(10).set_position("center").without_audio()
 
-    summary_clip = create_summary_clip(highlights)
+    summary_clip = create_summary_clip(highlights).without_audio()
 
         
     # === Concatenate all highlight clips ===
@@ -275,18 +275,45 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
     save_to = path.replace("..","").replace("\\","").replace(".mp4",f" Highlights - {str(dt.datetime.now())[:10]}.mp4")
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
 
-
+from moviepy.audio.fx.all import audio_normalize
 def combine_highlights(path1,path2,highlight1,highlight2):
     """
     Combines highlights from a list of dictionaries into a single video.
     """
     # === Configure your match video ===
-    video1 = VideoFileClip(path1)
-    video2 = VideoFileClip(path2)
+    video1 = mute_last_25_seconds(VideoFileClip(path1))
+    video2 = mute_last_25_seconds(VideoFileClip(path2).fx(audio_normalize))
     summary_clip = create_summary_clip(highlight1 + highlight2, True)
-    final_highlights = concatenate_videoclips([video1,video2, summary_clip])
+    final_highlights = concatenate_videoclips([video1,video2, summary_clip], method="compose")
     save_to = f"Combined Highlights - {str(dt.datetime.now())[:10]}.mp4"
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
+
+from moviepy.editor import VideoFileClip, AudioClip, concatenate_videoclips
+
+def mute_last_25_seconds(video):
+    """
+    Loads a video, mutes the last 25 seconds, and saves the result.
+
+    Parameters:
+    - video_path: str, path to input video
+    - output_path: str, path to save output video
+    """
+    duration = video.duration
+
+    # Clamp if video is shorter than 25 seconds
+    mute_duration = min(25, duration)
+
+    # Split into two parts
+    main_part = video.subclip(0, duration - mute_duration)
+    silent_part = video.subclip(duration - mute_duration, duration)
+
+    # Create silent audio for the last segment
+    silent_audio = AudioClip(lambda t: 0, duration=mute_duration, fps=44100)
+    silent_part = silent_part.set_audio(silent_audio)
+
+    # Combine and export
+    final = concatenate_videoclips([main_part, silent_part], method="compose")
+    return final
 
 
 def merge_highlight_dicts(highlights, extend_clips=0):
