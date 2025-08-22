@@ -181,7 +181,7 @@ def create_summary_clip(highlights, combined=False):
 
     return summary_clip
 
-def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0,game=1):
+def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0,game=1,fix_scores=[]):
 
     # === Configure your match video ===
     video = VideoFileClip(path)
@@ -195,7 +195,11 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
         "n": non_bibs_team['name'], "b": bibs_team['name']
     }
     tracker = match_tracker(team_dict["n"], team_dict["b"])
-    next(tracker) 
+    next(tracker)
+    for score in fix_scores:
+        tracker.send((team_dict[score["team"]], score["scored"], score["assist"] if "assist" in score else "", mm_ss_to_seconds(score["time"]) // 60
+        ))
+
     for i, h in enumerate(highlights):
         if "start" in h:
             start = mm_ss_to_seconds(h["start"]) - extend_clips
@@ -266,12 +270,12 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
         final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size
     ).set_duration(10).set_position("center").without_audio()
 
-    summary_clip = create_summary_clip(highlights).without_audio()
+    summary_clip = create_summary_clip(highlights + fix_scores).without_audio()
 
         
     # === Concatenate all highlight clips ===
 
-    final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip])
+    final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip],method="compose")
     save_to = path.replace("..","").replace("\\","").replace(".mp4",f" Highlights - {str(dt.datetime.now())[:10]}.mp4")
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
 
@@ -314,6 +318,71 @@ def mute_last_25_seconds(video):
     # Combine and export
     final = concatenate_videoclips([main_part, silent_part], method="compose")
     return final
+
+def mute_segment(video_path, start_time, end_time):
+    """
+    Mutes a specific segment of the video from start_time to end_time.
+
+    Parameters:
+    - video: VideoFileClip, the video to mute
+    - start_time: float, start time in seconds
+    - end_time: float, end time in seconds
+
+    Returns:
+    - VideoFileClip with the specified segment muted
+    """
+    video = VideoFileClip(video_path)
+    duration = video.duration
+
+    # Clamp if video is shorter than the segment
+    start_time = max(0, min(start_time, duration))
+    end_time = max(start_time, min(end_time, duration))
+
+    # Split into two parts
+    main_part = video.subclip(0, start_time)
+    silent_part = video.subclip(start_time, end_time)
+    tail_part = video.subclip(end_time, duration)
+
+    # Create silent audio for the segment
+    silent_audio = AudioClip(lambda t: 0, duration=end_time - start_time, fps=44100)
+    silent_part = silent_part.set_audio(silent_audio)
+
+    # Combine and return
+    final = concatenate_videoclips([main_part, silent_part, tail_part], method="compose")
+    final.write_videofile("muted_video.mp4", codec="libx264", fps=25)
+
+def cut_video(video_path, start_time, end_time, output_path=None):
+    """
+    Cuts a video from start_time to end_time and saves it to output_path.
+    
+    Parameters:
+    - video_path: str, path to the input video file
+    - start_time: float, start time in seconds
+    - end_time: float, end time in seconds
+    - output_path: str, path to save the cut video
+    """
+    video = VideoFileClip(video_path)
+    end_time = video.duration - end_time
+    video = video.subclip(start_time, end_time)
+    if output_path is None:
+        output_path = video_path.replace(".mp4", f" - {start_time}-{end_time}.mp4")
+    video.write_videofile(output_path, codec="libx264", fps=25)
+
+def combine_videos(video_paths, output_path=None):
+    """
+    Combines multiple videos into one.
+
+    Parameters:
+    - video_paths: list of str, paths to input video files
+    - output_path: str, path to save the combined video
+    """
+    clips = [VideoFileClip(path) for path in video_paths]
+    final_clip = concatenate_videoclips(clips, method="compose")
+    
+    if output_path is None:
+        output_path = "combined_video.mp4"
+    
+    final_clip.write_videofile(output_path, codec="libx264", fps=25)
 
 
 def merge_highlight_dicts(highlights, extend_clips=0):
