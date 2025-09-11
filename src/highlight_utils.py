@@ -277,6 +277,7 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
 
     final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip],method="compose")
     save_to = path.replace("..","").replace("\\","").replace(".mp4",f" Highlights - {str(dt.datetime.now())[:10]}.mp4")
+    save_to = get_unique_filepath(save_to)
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
 
 from moviepy.audio.fx.all import audio_normalize
@@ -475,3 +476,21 @@ def zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=0.5):
     )
 
     return zoomed
+
+import os
+
+def get_unique_filepath(filepath):
+    """
+    Returns a unique file path by appending version suffixes (v1, v2, ...) if the file already exists.
+    """
+    if not os.path.exists(filepath):
+        return filepath
+
+    base, ext = os.path.splitext(filepath)
+    version = 1
+
+    while True:
+        new_filepath = f"{base}_v{version}{ext}"
+        if not os.path.exists(new_filepath):
+            return new_filepath
+        version += 1
