@@ -233,15 +233,19 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
             focal_x, focal_y = h["zoom"]
             clip = create_replay_pause_zoom(video, mm_ss_to_seconds(h["time"],True), pause_duration=3, x=focal_x, y=focal_y)
             txt = TextClip(
-                text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+                text, fontsize=36, color='white', font="Arial-Bold"
                 ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3)
             
             composite = CompositeVideoClip([clip, txt])
         elif "slow" in h:
-            focal_x, focal_y = h["slow"]
-            clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=0.5)
+            if len(h["slow"]) == 2:
+                focal_x, focal_y = h["slow"]
+                slowmo = 0.5
+            else:
+             focal_x, focal_y, slowmo = h["slow"]
+            clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=slowmo)
             txt = TextClip(
-                text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+                text, fontsize=36, color='white', font="Arial-Bold"
                 ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3)
             
             composite = CompositeVideoClip([clip, txt])
