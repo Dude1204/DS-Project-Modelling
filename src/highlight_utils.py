@@ -231,12 +231,23 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
 
         if "zoom" in h:
             focal_x, focal_y = h["zoom"]
-            clip = create_replay_pause_zoom(video, mm_ss_to_seconds(h["time"],True), pause_duration=3, x=focal_x, y=focal_y)
+            clip = create_replay_pause_zoom(video, mm_ss_to_seconds(h["time"],True), pause_duration=5, x=focal_x, y=focal_y)
             txt = TextClip(
-                text, fontsize=36, color='white', font="Arial-Bold"
-                ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3)
+                text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
+                ).set_position(("center", "bottom")).set_duration(2).set_start(clip.duration - 5)
             
-            composite = CompositeVideoClip([clip, txt])
+            if "Decision: Goal" in text:
+                text = tracker.send((team_dict[h["team"]], h["scored"], h["assist"] if "assist" in h else "", mm_ss_to_seconds(h["time"]) // 60
+                                     ))
+                final_scoreboard = text
+
+                txt2 = TextClip(
+                text, fontsize=36, color='white', font="Arial-Bold"
+                ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3 - extra_time)
+                composite = CompositeVideoClip([clip, txt, txt2])
+
+            else:
+                composite = CompositeVideoClip([clip, txt])
         elif "slow" in h:
             if len(h["slow"]) == 2:
                 focal_x, focal_y = h["slow"]
@@ -400,7 +411,7 @@ def merge_highlight_dicts(highlights, extend_clips=0):
     return overlaps
 
 
-def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.8, fps=25):
+def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.5, fps=25):
     def make_frame(t):
         img = Image.fromarray(image_clip.get_frame(t))
         base_w, base_h = img.size
@@ -430,7 +441,7 @@ def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.8, fps=25):
 
 from moviepy.editor import ImageClip
 def create_replay_pause_zoom(video, start_time, end_time=0,
-                              pause_duration=3, x=0.5, y=0.5):
+                              pause_duration=5, x=0.5, y=0.5):
 
     # Extract replay segment
     if end_time == 0:
