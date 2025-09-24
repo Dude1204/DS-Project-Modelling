@@ -509,3 +509,46 @@ def get_unique_filepath(filepath):
         if not os.path.exists(new_filepath):
             return new_filepath
         version += 1
+
+
+import os
+from pathlib import Path
+
+def get_mp4_files_by_creation(folder_path):
+    """
+    Returns a list of .mp4 file paths in the folder, sorted by creation time (oldest first).
+    """
+    folder = Path(folder_path)
+    if not folder.is_dir():
+        raise ValueError(f"{folder_path} is not a valid directory.")
+
+    mp4_files = [f for f in folder.glob("*.mp4") if f.is_file()]
+    sorted_files = sorted(mp4_files, key=lambda f: f.stat().st_ctime)
+    return [str(f) for f in sorted_files]
+
+from moviepy.editor import VideoFileClip, concatenate_videoclips
+
+def combine_videos(video_folder, output_path="GoProVid.mp4"):
+    """
+    Combines a list of video file paths into one video in the given order.
+    
+    Parameters:
+    - video_paths: List of strings, each a path to an .mp4 file
+    - output_path: Path to save the combined video
+    """
+    video_paths = get_mp4_files_by_creation(video_folder)
+    
+    clips = []
+    for path in video_paths:
+        try:
+            clip = VideoFileClip(path)
+            clips.append(clip)
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
+
+    if not clips:
+        raise ValueError("No valid video clips to combine.")
+
+    final_clip = concatenate_videoclips(clips, method="compose")
+    output_path = get_unique_filepath(output_path)
+    final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
