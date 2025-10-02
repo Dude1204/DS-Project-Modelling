@@ -181,10 +181,15 @@ def create_summary_clip(highlights, combined=False):
 
     return summary_clip
 
-def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0,game=1,fix_scores=[]):
+def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0,game=1,fix_scores=[], cam2=None):
 
     # === Configure your match video ===
-    video = VideoFileClip(path)
+    video0 = VideoFileClip(path)
+    if cam2 is not None:
+        #time_diff = highlights[0]["time"] - cam2["time"]
+        time_diff = mm_ss_to_seconds(highlights[0]["time"]) - mm_ss_to_seconds(cam2["time"])
+        video2 = VideoFileClip(cam2["path"])
+        
 
     team_intro = create_team_intro(non_bibs_team, bibs_team,game)
 
@@ -201,6 +206,19 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
         ))
 
     for i, h in enumerate(highlights):
+        if "angle" in h:
+            if h["angle"] == 0:
+                video = video0
+                vid2=False
+            elif h["angle"][0] == 1:
+                video = video2
+                vid2=True
+            else:
+                video = video0
+                vid2=False
+        else:
+            video = video0
+            vid2=False
         if "start" in h:
             start = mm_ss_to_seconds(h["start"]) - extend_clips
         else:
@@ -211,6 +229,8 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
         else:
             end = mm_ss_to_seconds(h["time"]) + 5 + extend_clips
 
+        start -= time_diff if vid2 else 0
+        end -= time_diff if vid2 else 0
         extra_time = max(0,(end - start - 15) if ("end" in h) and ("time" in h) else 0)
         clip = video.subclip(start, end)
 
@@ -265,7 +285,7 @@ def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips
                 text, fontsize=36, color='white', font="Arial-Bold"
                 ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration - extra_time)
             # Function to generate timer frame
-            def make_timer(t, start_time=start):
+            def make_timer(t, start_time=start - time_diff if vid2 else start):
                 current_time = start_time + int(t)
                 minutes = current_time // 60
                 seconds = current_time % 60
@@ -551,4 +571,4 @@ def combine_videos(video_folder, output_path="GoProVid.mp4"):
 
     final_clip = concatenate_videoclips(clips, method="compose")
     output_path = get_unique_filepath(output_path)
-    final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+    final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac",preset="ultrafast",threads=4)
