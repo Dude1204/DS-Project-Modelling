@@ -24,7 +24,7 @@ change_settings({
 })
 
 
-def mm_ss_to_seconds(time_float,specific=False):
+def mm_ss_to_seconds(time_float,specific=True):
     """
     Converts time from MM.SS format to total seconds.
     Example: 1.51 → 111 seconds (1 min + 51 sec)
@@ -181,138 +181,108 @@ def create_summary_clip(highlights, combined=False):
 
     return summary_clip
 
-def create_highlight_clip(path,highlights,non_bibs_team, bibs_team, extend_clips=0,game=1,fix_scores=[], cam2=None):
-
-    # === Configure your match video ===
+def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[], cam2=None):
     video0 = VideoFileClip(path)
-    if cam2 is not None:
-        #time_diff = highlights[0]["time"] - cam2["time"]
-        time_diff = mm_ss_to_seconds(highlights[0]["time"]) - mm_ss_to_seconds(cam2["time"])
-        video2 = VideoFileClip(cam2["path"])
+    video2 = None
+    time_diff = 0
+    if cam2:
         
+        time_diff = mm_ss_to_seconds(highlights[0].get("start", highlights[0]["time"])) - mm_ss_to_seconds(cam2["time"])
+        video2 = VideoFileClip(cam2["path"])
 
-    team_intro = create_team_intro(non_bibs_team, bibs_team,game)
-
-    # === Create clips with score overlay ===
-    highlight_clips = []
-    # Create the generator
-    team_dict = {
-        "n": non_bibs_team['name'], "b": bibs_team['name']
-    }
+    team_intro = create_team_intro(non_bibs_team, bibs_team, game)
+    team_dict = {"n": non_bibs_team['name'], "b": bibs_team['name']}
     tracker = match_tracker(team_dict["n"], team_dict["b"])
     next(tracker)
+
     for score in fix_scores:
-        tracker.send((team_dict[score["team"]], score["scored"], score["assist"] if "assist" in score else "", mm_ss_to_seconds(score["time"]) // 60
-        ))
+        tracker.send((team_dict[score["team"]], score["scored"], score.get("assist", ""), mm_ss_to_seconds(score["time"]) // 60))
+
+    highlight_clips = []
 
     for i, h in enumerate(highlights):
-        if "angle" in h:
-            if h["angle"] == 0:
-                video = video0
-                vid2=False
-            elif h["angle"][0] == 1:
-                video = video2
-                vid2=True
-            else:
-                video = video0
-                vid2=False
-        else:
-            video = video0
-            vid2=False
-        if "start" in h:
-            start = mm_ss_to_seconds(h["start"]) - extend_clips
-        else:
-            start = mm_ss_to_seconds(h["time"]) - 10 - extend_clips
-        
-        if "end" in h:
-            end = mm_ss_to_seconds(h["end"]) + extend_clips
-        else:
-            end = mm_ss_to_seconds(h["time"]) + 5 + extend_clips
+        angle = h.get("angle", 0)
+        video = video2 if angle == 1 and video2 else video0
+        vid2 = video is video2
 
+        time_diff -= h.get("time_adjustment", 0)
+
+        start = mm_ss_to_seconds(h.get("start", h["time"])) - (10 if "start" not in h else 0) - extend_clips
+        end = mm_ss_to_seconds(h.get("end", h["time"])) + (5 if "end" not in h else 0) + extend_clips
         start -= time_diff if vid2 else 0
         end -= time_diff if vid2 else 0
-        extra_time = max(0,(end - start - 15) if ("end" in h) and ("time" in h) else 0)
-        clip = video.subclip(start, end)
+        extra_time = max(0, (end - start - 15) if "end" in h and "time" in h else 0)
 
-        text_duration = h["text_duration"] if "text_duration" in h else 5
-        
-        # Create score text overlay
+        clip = video.subclip(start, end)
+        text_duration = h.get("text_duration", 5)
 
         if "text" not in h:
-            text = tracker.send((team_dict[h["team"]], h["scored"], h["assist"] if "assist" in h else "", mm_ss_to_seconds(h["time"]) // 60
-    ))
+            text = tracker.send((team_dict[h["team"]], h["scored"], h.get("assist", ""), mm_ss_to_seconds(h["time"]) // 60))
             final_scoreboard = text
-
         else:
             text = h["text"]
-            if "Kick-off" in text:
+            if any(tag in text for tag in ["Kick-off", "2nd Angle", "Replay", "Penalty"]):
                 text_duration = clip.duration
 
+        def make_timer(t, base=start + time_diff if vid2 else start):
+            current_time = base + int(t)
+            minutes, seconds = divmod(int(current_time), 60)
+            return TextClip(f"{minutes}:{seconds:02d}", fontsize=36, color='white', font="Arial-Bold", bg_color='black')\
+                .set_position(("left", "top")).set_duration(clip.duration).get_frame(t)
+
+        timer_txt = VideoClip(make_timer, duration=clip.duration)
+
+        def overlay_text(txt, duration, start_offset):
+            return TextClip(txt, fontsize=36, color='white', font="Arial-Bold")\
+                .set_position(("center", "bottom")).set_duration(duration).set_start(start_offset)
 
         if "zoom" in h:
             focal_x, focal_y = h["zoom"]
-            clip = create_replay_pause_zoom(video, mm_ss_to_seconds(h["time"],True), pause_duration=5, x=focal_x, y=focal_y)
-            txt = TextClip(
-                text, fontsize=36, color='white', font="Arial-Bold", bg_color='black'
-                ).set_position(("center", "bottom")).set_duration(2).set_start(clip.duration - 5)
-            
+            clip = create_replay_pause_zoom(video, mm_ss_to_seconds(h["time"], True), pause_duration=5, x=focal_x, y=focal_y)
+            txt = overlay_text(text, 2, clip.duration - 5)
+
             if "Decision: Goal" in text:
-                text = tracker.send((team_dict[h["team"]], h["scored"], h["assist"] if "assist" in h else "", mm_ss_to_seconds(h["time"]) // 60
-                                     ))
+                text = tracker.send((team_dict[h["team"]], h["scored"], h.get("assist", ""), mm_ss_to_seconds(h["time"]) // 60))
                 final_scoreboard = text
-
-                txt2 = TextClip(
-                text, fontsize=36, color='white', font="Arial-Bold"
-                ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3 - extra_time)
+                txt2 = overlay_text(text, 3, clip.duration - 3 - extra_time)
                 composite = CompositeVideoClip([clip, txt, txt2])
-
             else:
                 composite = CompositeVideoClip([clip, txt])
-        elif "slow" in h:
-            if len(h["slow"]) == 2:
-                focal_x, focal_y = h["slow"]
-                slowmo = 0.5
-            else:
-             focal_x, focal_y, slowmo = h["slow"]
-            clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=slowmo)
-            txt = TextClip(
-                text, fontsize=36, color='white', font="Arial-Bold"
-                ).set_position(("center", "bottom")).set_duration(3).set_start(clip.duration - 3)
-            
-            composite = CompositeVideoClip([clip, txt])
-        else:
-            txt = TextClip(
-                text, fontsize=36, color='white', font="Arial-Bold"
-                ).set_position(("center", "bottom")).set_duration(text_duration).set_start(clip.duration - text_duration - extra_time)
-            # Function to generate timer frame
-            def make_timer(t, start_time=start - time_diff if vid2 else start):
-                current_time = start_time + int(t)
-                minutes = current_time // 60
-                seconds = current_time % 60
-                txt_clip = TextClip(
-                    f"{minutes}:{seconds:02d}",
-                    fontsize=36, color='white', font="Arial-Bold", bg_color='black'
-                ).set_position(("left", "top")).set_duration(clip.duration)
-                
-                return txt_clip.get_frame(t)  # Return actual frame as NumPy array
 
-            # Create dynamic timer clip
-            timer_txt = VideoClip(make_timer, duration=clip.duration)
+        elif "slow" in h:
+            focal_x, focal_y, *rest = h["slow"]
+            slowmo = rest[0] if rest else 0.5
+            clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=slowmo)
+            txt = overlay_text(text, 3, clip.duration - 3)
+            composite = CompositeVideoClip([clip, txt])
+
+        else:
+            txt = overlay_text(text, text_duration, clip.duration - text_duration - extra_time)
+            if angle == 2 and video2:
+                # Clip1 from video0 (primary)
+                start1 = mm_ss_to_seconds(h.get("start", h["time"])) - (10 if "start" not in h else 0) - extend_clips
+                end1 = mm_ss_to_seconds(h.get("end", h["time"])) + (5 if "end" not in h else 0) + extend_clips
+                clip1 = video0.subclip(start1, end1)
+
+                # Clip2 from video2 (secondary), adjusted for time_diff
+                start2 = start1 - time_diff
+                end2 = end1 - time_diff
+                clip2 = video2.subclip(start2, end2)
+                overlap_px = cam2.get("overlap_px", 100) if cam2 else 100
+
+                clip = create_stitched_clip(clip2,clip1, overlap_px=overlap_px)
+
             composite = CompositeVideoClip([clip, txt, timer_txt])
+
         highlight_clips.append(composite)
 
-    scoreboard_clip = TextClip(
-        final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size
-    ).set_duration(10).set_position("center").without_audio()
+    scoreboard_clip = TextClip(final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size)\
+        .set_duration(10).set_position("center").without_audio()
 
     summary_clip = create_summary_clip(highlights + fix_scores).without_audio()
 
-        
-    # === Concatenate all highlight clips ===
-
-    final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip],method="compose")
-    save_to = path.replace("..","").replace("\\","").replace(".mp4",f" Highlights - {str(dt.datetime.now())[:10]}.mp4")
-    save_to = get_unique_filepath(save_to)
+    final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip], method="compose")
+    save_to = get_unique_filepath(path.replace("..", "").replace("\\", "").replace(".mp4", f" Highlights - {str(dt.datetime.now())[:10]}.mp4"))
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
 
 from moviepy.audio.fx.all import audio_normalize
@@ -419,17 +389,6 @@ def combine_videos(video_paths, output_path=None):
         output_path = "combined_video.mp4"
     
     final_clip.write_videofile(output_path, codec="libx264", fps=25)
-
-
-def merge_highlight_dicts(highlights, extend_clips=0):
-    overlaps = {}
-    for i, h in enumerate(highlights):
-        start = mm_ss_to_seconds(h["start"] if "start" in h else h["time"]) - 10 - extend_clips
-        end = mm_ss_to_seconds(h["end"] if "end" in h else (h["time"] )) + 5 + extend_clips
-        overlaps[i] = [start,end]
-    
-    return overlaps
-
 
 def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.5, fps=25):
     def make_frame(t):
@@ -572,3 +531,40 @@ def combine_videos(video_folder, output_path="GoProVid.mp4"):
     final_clip = concatenate_videoclips(clips, method="compose")
     output_path = get_unique_filepath(output_path)
     final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac",preset="ultrafast",threads=4)
+
+
+from moviepy.editor import VideoFileClip, CompositeVideoClip, TextClip
+
+def overlay_text(txt, duration, start_offset, stitched_height):
+    return (
+        TextClip(txt, fontsize=36, color='white', font="Arial-Bold")
+        .set_position(("center", stitched_height - 80))  # Keeps text inside frame
+        .set_duration(duration)
+        .set_start(start_offset)
+        .fadein(0.3)
+        .fadeout(0.3)
+    )
+
+def create_stitched_clip(
+    video0,
+    video2,
+    overlap_px=100, #350
+):
+    # Crop overlap
+    left_cropped = video0.crop(x2=video0.w - overlap_px)
+    right_cropped = video2.crop(x1=overlap_px)
+
+    # Position right clip
+    right_positioned = right_cropped.set_position((left_cropped.w, 0))
+
+    # Stitch dimensions
+    stitched_width = left_cropped.w + right_cropped.w
+    stitched_height = max(left_cropped.h, right_cropped.h)
+
+    # Combine clips
+    stitched_clip = CompositeVideoClip(
+        [left_cropped, right_positioned],
+        size=(stitched_width, stitched_height)
+    )
+
+    return stitched_clip
