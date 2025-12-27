@@ -186,8 +186,7 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
     video2 = None
     time_diff = 0
     if cam2:
-        
-        time_diff = mm_ss_to_seconds(highlights[0].get("start", highlights[0]["time"])) - mm_ss_to_seconds(cam2["time"])
+        time_diff = mm_ss_to_seconds(highlights[0].get("time", highlights[0].get("start"))) - mm_ss_to_seconds(cam2["time"])
         video2 = VideoFileClip(cam2["path"])
 
     team_intro = create_team_intro(non_bibs_team, bibs_team, game)
