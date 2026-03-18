@@ -181,7 +181,7 @@ def create_summary_clip(highlights, combined=False):
 
     return summary_clip
 
-def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[], cam2=None):
+def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[],final_score=None, cam2=None):
     video0 = VideoFileClip(path)
     video2 = None
     time_diff = 0
@@ -249,9 +249,10 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
                 composite = CompositeVideoClip([clip, txt])
 
         elif "slow" in h:
-            focal_x, focal_y, *rest = h["slow"]
-            slowmo = rest[0] if rest else 0.5
-            clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=slowmo)
+            focal_x, focal_y = h["slow"][0]
+            slowmo = h["slow"][1]
+            zoom = h["slow"][2]
+            clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=zoom, slowmo_factor=slowmo)
             txt = overlay_text(text, 3, clip.duration - 3)
             composite = CompositeVideoClip([clip, txt])
 
@@ -275,12 +276,18 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
 
         highlight_clips.append(composite)
 
-    scoreboard_clip = TextClip(final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size)\
-        .set_duration(10).set_position("center").without_audio()
+    if final_score:
+        final_scoreboard=f"""{team_dict["n"]}: {final_score["n"]}, {team_dict["b"]}: {final_score["b"]}"""
+        scoreboard_clip = TextClip(final_scoreboard, fontsize=36, color='white', font="Arial", bg_color='black', size=video.size)\
+            .set_duration(10).set_position("center").without_audio()
+        final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip], method="compose")
+    else:
+        scoreboard_clip = TextClip(final_scoreboard.replace(">>>", ""), fontsize=36, color='white', font="Arial", bg_color='black', size=video.size)\
+            .set_duration(10).set_position("center").without_audio()
 
-    summary_clip = create_summary_clip(highlights + fix_scores).without_audio()
+        summary_clip = create_summary_clip(highlights + fix_scores).without_audio()
 
-    final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip], method="compose")
+        final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip], method="compose")
     save_to = get_unique_filepath(path.replace("..", "").replace("\\", "").replace(".mp4", f" Highlights - {str(dt.datetime.now())[:10]}.mp4"))
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
 
