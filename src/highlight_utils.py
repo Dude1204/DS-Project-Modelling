@@ -181,7 +181,7 @@ def create_summary_clip(highlights, combined=False):
 
     return summary_clip
 
-def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[],final_score=None, cam2=None):
+def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[],final_score=None, cam2=None, replays=None):
     video0 = VideoFileClip(path)
     TARGET_SIZE = video0.size   # (width, height)
     video2 = None
@@ -193,6 +193,12 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
     if cam2:
         time_diff = mm_ss_to_seconds(highlights[0].get("time", highlights[0].get("start"))) - mm_ss_to_seconds(cam2["time"])
         video2 = VideoFileClip(cam2["path"])
+    if replays:
+        ko = mm_ss_to_seconds(highlights[0].get("time", highlights[0].get("start")))
+        time_diff_h = ko- mm_ss_to_seconds(replays["time_h"])
+        time_diff_a = ko - mm_ss_to_seconds(replays["time_a"])
+        video_h = VideoFileClip(replays["path_h"])
+        video_a = VideoFileClip(replays["path_a"])
 
     team_intro = create_team_intro(non_bibs_team, bibs_team, game)
     team_dict = {"n": non_bibs_team['name'], "b": bibs_team['name']}
@@ -208,13 +214,15 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
     logo1 = non_bibs_team.get("logo")
     logo2 = bibs_team.get("logo")
     scoreboard_elements = create_scoreboard(team_dict["n"], "0", team_dict["b"], "0", logo1, logo2,duration=15)
-
+    scored = False
     for i, h in enumerate(highlights):
         angle = h.get("angle", 0)
         video = video2 if angle == 1 and video2 else video0
         vid2 = video is video2
 
         time_diff -= h.get("time_adjustment", 0)
+        time_diff_h -= h.get("time_adjustment", 0)
+        time_diff_a -= h.get("time_adjustment", 0)
 
         start = mm_ss_to_seconds(h.get("start", h["time"])) - (10 if "start" not in h else 0) - extend_clips
         end = mm_ss_to_seconds(h.get("end", h["time"])) + (5 if "end" not in h else 0) + extend_clips
@@ -249,9 +257,9 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
             ).get_frame(t)
 
         timer_txt = VideoClip(make_timer, duration=clip.duration)
-        timer_txt = timer_txt.set_position((TARGET_SIZE[0] - 150, 10))
-
-        timer_txt = VideoClip(make_timer, duration=clip.duration)
+        timer_txt = timer_txt.set_position(("right", "top"))
+        #timer_txt = timer_txt.set_position((TARGET_SIZE[0] - 150, 10))
+        #timer_txt = timer_txt.set_position((2538 - 150, 10))
 
         def overlay_text(txt, duration, start_offset):
             return TextClip(txt, fontsize=36, color='white', font="Arial-Bold")\
@@ -259,6 +267,7 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
         
         if update_score:
             update_score = False
+            scored = True
 
             score1, score2 = extract_scores_from_block(final_scoreboard, team_dict["n"], team_dict["b"])
 
@@ -289,7 +298,14 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
 
             # Combine both
             scoreboard_elements = scoreboard_elements_pre + scoreboard_elements_post
-
+        else:
+            if scored:
+                scoreboard_elements = create_scoreboard(
+                    team_dict["n"], score1,
+                    team_dict["b"], score2,
+                    logo1, logo2,
+                    duration=clip.duration
+                )
 
         if "zoom" in h:
             focal_x, focal_y = h["zoom"]
@@ -313,6 +329,18 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
             clip = clip.set_audio(silent_audio)
             txt = overlay_text(text, 3, clip.duration - 3)
             composite = CompositeVideoClip([clip, txt])
+        
+        elif "patch" in h:
+            txt = overlay_text(text, text_duration, clip.duration - text_duration - extra_time)
+            time_diff_ha = time_diff_h if h["patch"] == "h" else time_diff_a
+            video_ha = video_h if h["patch"] == "h" else video_a
+
+            start -= time_diff_ha 
+            end -= time_diff_ha
+
+            clip = video_ha.subclip(start, end)  # Replay is shorter and starts a bit later
+
+            composite = CompositeVideoClip([clip, txt] + scoreboard_elements + [timer_txt])
 
         else:
             txt = overlay_text(text, text_duration, clip.duration - text_duration - extra_time)
@@ -331,10 +359,23 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
                 clip = create_stitched_clip(clip2,clip1, overlap_px=overlap_px)
                 clip = clip.resize(newsize=TARGET_SIZE)
 
-            composite = CompositeVideoClip([clip, txt, timer_txt]+ scoreboard_elements)
+            composite = CompositeVideoClip([clip, txt] + scoreboard_elements + [timer_txt])
 
         composite = composite.resize(newsize=TARGET_SIZE)
         highlight_clips.append(composite)
+
+        if "replay" in h and replays:
+            time_diff_ha = time_diff_h if h["replay"] == "h" else time_diff_a
+            video_ha = video_h if h["replay"] == "h" else video_a
+
+            time = mm_ss_to_seconds(h["time"]) - time_diff_ha
+
+            clip = video_ha.subclip(time - 5, time + 2)  # Replay is shorter and starts a bit later
+
+            txt = overlay_text("Replay", clip.duration,0)
+            composite = CompositeVideoClip([clip, txt])
+            composite = composite.resize(newsize=TARGET_SIZE)
+            highlight_clips.append(composite)
 
     if final_score:
         final_scoreboard=f"""{team_dict["n"]}: {final_score["n"]}, {team_dict["b"]}: {final_score["b"]}"""
@@ -637,6 +678,68 @@ def create_stitched_clip(
 
 from moviepy.editor import ImageClip, TextClip, ColorClip
 import os
+
+# def create_scoreboard(team1, score1, team2, score2,
+#                       logo1=None, logo2=None,
+#                       height=60, duration=5, padding=10):
+
+#     elements = []
+
+#     # Move scoreboard down so timer can sit above it
+#     Y_OFFSET = 80   # <--- THIS IS THE FIX
+
+#     bg_width = 600
+#     bg_height = height + padding*2
+
+#     # Background halves
+#     left_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
+#                 .set_duration(duration) \
+#                 .set_position((0, Y_OFFSET))
+
+#     right_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
+#                 .set_duration(duration) \
+#                 .set_position((bg_width // 2, Y_OFFSET))
+
+#     elements += [left_bg, right_bg]
+
+#     x_offset = padding
+#     y = padding + Y_OFFSET
+
+#     # Team 1 logo
+#     if logo1 and os.path.exists(logo1):
+#         logo_clip1 = ImageClip(logo1).resize(height=height).set_duration(duration)
+#         logo_clip1 = logo_clip1.set_position((x_offset, y))
+#         elements.append(logo_clip1)
+#         x_offset += logo_clip1.w + padding
+
+#     # Team 1 name + score
+#     t1 = TextClip(f"{team1} {score1}", fontsize=36, color='white', font="Arial") \
+#             .set_duration(duration) \
+#             .set_position((x_offset, y))
+#     elements.append(t1)
+#     x_offset += t1.w + padding
+
+#     # Dash
+#     dash = TextClip("-", fontsize=36, color='white', font="Arial") \
+#             .set_duration(duration) \
+#             .set_position((x_offset, y))
+#     elements.append(dash)
+#     x_offset += dash.w + padding
+
+#     # Team 2 name + score
+#     t2 = TextClip(f"{score2} {team2}", fontsize=36, color='white', font="Arial") \
+#             .set_duration(duration) \
+#             .set_position((x_offset, y))
+#     elements.append(t2)
+#     x_offset += t2.w + padding
+
+#     # Team 2 logo
+#     if logo2 and os.path.exists(logo2):
+#         logo_clip2 = ImageClip(logo2).resize(height=height).set_duration(duration)
+#         logo_clip2 = logo_clip2.set_position((x_offset, y))
+#         elements.append(logo_clip2)
+
+#     return elements
 
 def create_scoreboard(team1, score1, team2, score2,
                       logo1=None, logo2=None,
