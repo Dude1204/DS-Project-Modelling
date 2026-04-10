@@ -9,15 +9,11 @@ from PIL import Image
 import numpy as np
 import math
 
-from moviepy.editor import VideoClip
 from PIL import Image
 import numpy as np
 import math
+from moviepy.editor import ImageClip, VideoClip
 
-from moviepy.editor import VideoClip
-from PIL import Image
-import numpy as np
-import math
 
 change_settings({
     "IMAGEMAGICK_BINARY": r"C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI\\magick.exe"
@@ -90,7 +86,6 @@ def format_team(team):
         lines.append(f"{p}{label}")
     return "\n".join(lines)
 
-from moviepy.editor import TextClip, ColorClip, CompositeVideoClip
 
 def create_team_intro(non_bibs_team, bibs_team, game=1):
     # Video settings
@@ -181,6 +176,217 @@ def create_summary_clip(highlights, combined=False):
 
     return summary_clip
 
+def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.5, fps=25):
+    def make_frame(t):
+        img = Image.fromarray(image_clip.get_frame(t))
+        base_w, base_h = img.size
+
+        # Zoom scaling
+        scale = 1 + zoom_ratio * t
+        new_w = math.ceil(base_w * scale)
+        new_h = math.ceil(base_h * scale)
+        new_w += new_w % 2
+        new_h += new_h % 2
+
+        # Resize
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+
+        # Compute crop centered on (focal_x, focal_y)
+        x = int(focal_x * scale - base_w // 2)
+        y = int(focal_y * scale - base_h // 2)
+
+        # Clamp to image edges
+        x = max(0, min(x, new_w - base_w))
+        y = max(0, min(y, new_h - base_h))
+
+        img = img.crop((x, y, x + base_w, y + base_h))
+        return np.array(img)
+
+    return VideoClip(make_frame, duration=image_clip.duration).set_fps(fps)
+
+
+def create_replay_pause_zoom(video, start_time, end_time=0,
+                              pause_duration=5, x=0.5, y=0.5):
+
+    # Extract replay segment
+    if end_time == 0:
+        end_time = start_time + 1
+    replay_clip = video.subclip(start_time, end_time)
+
+    # Freeze last frame
+    pause_frame = replay_clip.to_ImageClip().set_duration(pause_duration)
+
+    width, height = pause_frame.size
+    focal_x = width * x  # right side
+    focal_y = height * y  # middle
+
+    zoomed = zoom_in_to_point(pause_frame.set_duration(pause_duration), focal_x, focal_y, fps=25)
+    # Zoom-in effect (animated or static — toggle as needed)
+
+    frozen_zoom = ImageClip(zoomed.get_frame(pause_duration)).set_duration(pause_duration)
+    
+    #frozen_zoom = zoomed.to_ImageClip().set_duration(pause_duration)
+
+    # Stitch replay, pause, zoomed frame
+    final_clip = concatenate_videoclips([pause_frame, zoomed, frozen_zoom])
+
+    return final_clip
+
+
+def zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=0.5):
+    w, h = clip.size
+    crop_w = w / zoom_factor
+    crop_h = h / zoom_factor
+
+    center_x = int(focal_x * w)
+    center_y = int(focal_y * h)
+
+    x1 = max(0, int(center_x - crop_w / 2))
+    y1 = max(0, int(center_y - crop_h / 2))
+
+    # Ensure crop doesn't exceed frame bounds
+    x1 = min(x1, w - int(crop_w))
+    y1 = min(y1, h - int(crop_h))
+
+    zoomed = (
+        clip
+        .crop(x1=x1, y1=y1, width=int(crop_w), height=int(crop_h))
+        .resize((w, h))
+        .fx(vfx.speedx, slowmo_factor)
+    )
+
+    return zoomed
+
+import os
+
+def get_unique_filepath(filepath):
+    """
+    Returns a unique file path by appending version suffixes (v1, v2, ...) if the file already exists.
+    """
+    if not os.path.exists(filepath):
+        return filepath
+
+    base, ext = os.path.splitext(filepath)
+    version = 1
+
+    while True:
+        new_filepath = f"{base}_v{version}{ext}"
+        if not os.path.exists(new_filepath):
+            return new_filepath
+        version += 1
+
+def overlay_text(txt, duration, start_offset, stitched_height):
+    return (
+        TextClip(txt, fontsize=36, color='white', font="Arial-Bold")
+        .set_position(("center", stitched_height - 80))  # Keeps text inside frame
+        .set_duration(duration)
+        .set_start(start_offset)
+        .fadein(0.3)
+        .fadeout(0.3)
+    )
+
+def create_stitched_clip(
+    video0,
+    video2,
+    overlap_px=100, #350
+):
+    # Crop overlap
+    left_cropped = video0.crop(x2=video0.w - overlap_px)
+    right_cropped = video2.crop(x1=overlap_px)
+
+    # Position right clip
+    right_positioned = right_cropped.set_position((left_cropped.w, 0))
+
+    # Stitch dimensions
+    stitched_width = left_cropped.w + right_cropped.w
+    stitched_height = max(left_cropped.h, right_cropped.h)
+
+    # Combine clips
+    stitched_clip = CompositeVideoClip(
+        [left_cropped, right_positioned],
+        size=(stitched_width, stitched_height)
+    )
+
+    return stitched_clip
+
+def create_scoreboard(team1, score1, team2, score2,
+                      logo1=None, logo2=None,
+                      height=60, duration=5, padding=10):
+
+    elements = []
+
+    # Width of the scoreboard bar
+    bg_width = 600
+    bg_height = height + padding*2
+
+    # LEFT HALF = Black
+    left_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
+                .set_duration(duration) \
+                .set_position((0, 0))
+
+    # RIGHT HALF = Black
+    right_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
+                .set_duration(duration) \
+                .set_position((bg_width // 2, 0))
+
+    elements += [left_bg, right_bg]
+
+    x_offset = padding
+
+    # Team 1 logo (Non-bibs)
+    if logo1 and os.path.exists(logo1):
+        logo_clip1 = ImageClip(logo1).resize(height=height).set_duration(duration)
+        logo_clip1 = logo_clip1.set_position((x_offset, padding))
+        elements.append(logo_clip1)
+        x_offset += logo_clip1.w + padding
+
+    # Team 1 name + score
+    t1 = TextClip(f"{team1} {score1}", fontsize=36, color='white', font="Arial") \
+            .set_duration(duration) \
+            .set_position((x_offset, padding))
+    elements.append(t1)
+    x_offset += t1.w + padding
+
+    # Dash
+    dash = TextClip("-", fontsize=36, color='white', font="Arial") \
+            .set_duration(duration) \
+            .set_position((x_offset, padding))
+    elements.append(dash)
+    x_offset += dash.w + padding
+
+    # Team 2 name + score
+    t2 = TextClip(f"{score2} {team2}", fontsize=36, color='white', font="Arial") \
+            .set_duration(duration) \
+            .set_position((x_offset, padding))
+    elements.append(t2)
+    x_offset += t2.w + padding
+
+    # Team 2 logo (Bibs)
+    if logo2 and os.path.exists(logo2):
+        logo_clip2 = ImageClip(logo2).resize(height=height).set_duration(duration)
+        logo_clip2 = logo_clip2.set_position((x_offset, padding))
+        elements.append(logo_clip2)
+
+    return elements
+
+def extract_scores_from_block(score_text, team1, team2):
+    score1 = "0"
+    score2 = "0"
+
+    # Normalize whitespace
+    cleaned = score_text.replace("\r", "").replace("\t", "")
+    lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
+
+    # Look for "Team Name: X" in each line
+    for line in lines:
+        if line.startswith(team1 + ":"):
+            score1 = line.split(":")[1].strip()
+        elif line.startswith(team2 + ":"):
+            score2 = line.split(":")[1].strip()
+
+    return score1, score2
+
+
 def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[],final_score=None, cam2=None, replays=None):
     video0 = VideoFileClip(path)
     TARGET_SIZE = video0.size   # (width, height)
@@ -258,8 +464,6 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
 
         timer_txt = VideoClip(make_timer, duration=clip.duration)
         timer_txt = timer_txt.set_position(("right", "top"))
-        #timer_txt = timer_txt.set_position((TARGET_SIZE[0] - 150, 10))
-        #timer_txt = timer_txt.set_position((2538 - 150, 10))
 
         def overlay_text(txt, duration, start_offset):
             return TextClip(txt, fontsize=36, color='white', font="Arial-Bold")\
@@ -391,431 +595,3 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
         final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip], method="compose")
     save_to = get_unique_filepath(path.replace("..", "").replace("\\", "").replace(".mp4", f" Highlights - {str(dt.datetime.now())[:10]}.mp4"))
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
-
-from moviepy.audio.fx.all import audio_normalize
-def combine_highlights(path1,path2,highlight1,highlight2):
-    """
-    Combines highlights from a list of dictionaries into a single video.
-    """
-    # === Configure your match video ===
-    video1 = mute_last_25_seconds(VideoFileClip(path1))
-    video2 = mute_last_25_seconds(VideoFileClip(path2).fx(audio_normalize))
-    summary_clip = create_summary_clip(highlight1 + highlight2, True)
-    final_highlights = concatenate_videoclips([video1,video2, summary_clip], method="compose")
-    save_to = f"Combined Highlights - {str(dt.datetime.now())[:10]}.mp4"
-    final_highlights.write_videofile(save_to, codec="libx264", fps=25)
-
-from moviepy.editor import VideoFileClip, AudioClip, concatenate_videoclips
-
-def mute_last_25_seconds(video):
-    """
-    Loads a video, mutes the last 25 seconds, and saves the result.
-
-    Parameters:
-    - video_path: str, path to input video
-    - output_path: str, path to save output video
-    """
-    duration = video.duration
-
-    # Clamp if video is shorter than 25 seconds
-    mute_duration = min(25, duration)
-
-    # Split into two parts
-    main_part = video.subclip(0, duration - mute_duration)
-    silent_part = video.subclip(duration - mute_duration, duration)
-
-    # Create silent audio for the last segment
-    silent_audio = AudioClip(lambda t: 0, duration=mute_duration, fps=44100)
-    silent_part = silent_part.set_audio(silent_audio)
-
-    # Combine and export
-    final = concatenate_videoclips([main_part, silent_part], method="compose")
-    return final
-
-def mute_segment(video_path, start_time, end_time):
-    """
-    Mutes a specific segment of the video from start_time to end_time.
-
-    Parameters:
-    - video: VideoFileClip, the video to mute
-    - start_time: float, start time in seconds
-    - end_time: float, end time in seconds
-
-    Returns:
-    - VideoFileClip with the specified segment muted
-    """
-    video = VideoFileClip(video_path)
-    duration = video.duration
-
-    # Clamp if video is shorter than the segment
-    start_time = max(0, min(start_time, duration))
-    end_time = max(start_time, min(end_time, duration))
-
-    # Split into two parts
-    main_part = video.subclip(0, start_time)
-    silent_part = video.subclip(start_time, end_time)
-    tail_part = video.subclip(end_time, duration)
-
-    # Create silent audio for the segment
-    silent_audio = AudioClip(lambda t: 0, duration=end_time - start_time, fps=44100)
-    silent_part = silent_part.set_audio(silent_audio)
-
-    # Combine and return
-    final = concatenate_videoclips([main_part, silent_part, tail_part], method="compose")
-    final.write_videofile("muted_video.mp4", codec="libx264", fps=25)
-
-def cut_video(video_path, start_time, end_time, output_path=None):
-    """
-    Cuts a video from start_time to end_time and saves it to output_path.
-    
-    Parameters:
-    - video_path: str, path to the input video file
-    - start_time: float, start time in seconds
-    - end_time: float, end time in seconds
-    - output_path: str, path to save the cut video
-    """
-    video = VideoFileClip(video_path)
-    end_time = video.duration - end_time
-    video = video.subclip(start_time, end_time)
-    if output_path is None:
-        output_path = video_path.replace(".mp4", f" - {start_time}-{end_time}.mp4")
-    video.write_videofile(output_path, codec="libx264", fps=25)
-
-def combine_videos(video_paths, output_path=None):
-    """
-    Combines multiple videos into one.
-
-    Parameters:
-    - video_paths: list of str, paths to input video files
-    - output_path: str, path to save the combined video
-    """
-    clips = [VideoFileClip(path) for path in video_paths]
-    final_clip = concatenate_videoclips(clips, method="compose")
-    
-    if output_path is None:
-        output_path = "combined_video.mp4"
-    
-    final_clip.write_videofile(output_path, codec="libx264", fps=25)
-
-def zoom_in_to_point(image_clip, focal_x, focal_y, zoom_ratio=0.5, fps=25):
-    def make_frame(t):
-        img = Image.fromarray(image_clip.get_frame(t))
-        base_w, base_h = img.size
-
-        # Zoom scaling
-        scale = 1 + zoom_ratio * t
-        new_w = math.ceil(base_w * scale)
-        new_h = math.ceil(base_h * scale)
-        new_w += new_w % 2
-        new_h += new_h % 2
-
-        # Resize
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-
-        # Compute crop centered on (focal_x, focal_y)
-        x = int(focal_x * scale - base_w // 2)
-        y = int(focal_y * scale - base_h // 2)
-
-        # Clamp to image edges
-        x = max(0, min(x, new_w - base_w))
-        y = max(0, min(y, new_h - base_h))
-
-        img = img.crop((x, y, x + base_w, y + base_h))
-        return np.array(img)
-
-    return VideoClip(make_frame, duration=image_clip.duration).set_fps(fps)
-
-from moviepy.editor import ImageClip
-def create_replay_pause_zoom(video, start_time, end_time=0,
-                              pause_duration=5, x=0.5, y=0.5):
-
-    # Extract replay segment
-    if end_time == 0:
-        end_time = start_time + 1
-    replay_clip = video.subclip(start_time, end_time)
-
-    # Freeze last frame
-    pause_frame = replay_clip.to_ImageClip().set_duration(pause_duration)
-
-    width, height = pause_frame.size
-    focal_x = width * x  # right side
-    focal_y = height * y  # middle
-
-    zoomed = zoom_in_to_point(pause_frame.set_duration(pause_duration), focal_x, focal_y, fps=25)
-    # Zoom-in effect (animated or static — toggle as needed)
-
-    frozen_zoom = ImageClip(zoomed.get_frame(pause_duration)).set_duration(pause_duration)
-    
-    #frozen_zoom = zoomed.to_ImageClip().set_duration(pause_duration)
-
-    # Stitch replay, pause, zoomed frame
-    final_clip = concatenate_videoclips([pause_frame, zoomed, frozen_zoom])
-
-    return final_clip
-
-
-def zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=2.0, slowmo_factor=0.5):
-    w, h = clip.size
-    crop_w = w / zoom_factor
-    crop_h = h / zoom_factor
-
-    center_x = int(focal_x * w)
-    center_y = int(focal_y * h)
-
-    x1 = max(0, int(center_x - crop_w / 2))
-    y1 = max(0, int(center_y - crop_h / 2))
-
-    # Ensure crop doesn't exceed frame bounds
-    x1 = min(x1, w - int(crop_w))
-    y1 = min(y1, h - int(crop_h))
-
-    zoomed = (
-        clip
-        .crop(x1=x1, y1=y1, width=int(crop_w), height=int(crop_h))
-        .resize((w, h))
-        .fx(vfx.speedx, slowmo_factor)
-    )
-
-    return zoomed
-
-import os
-
-def get_unique_filepath(filepath):
-    """
-    Returns a unique file path by appending version suffixes (v1, v2, ...) if the file already exists.
-    """
-    if not os.path.exists(filepath):
-        return filepath
-
-    base, ext = os.path.splitext(filepath)
-    version = 1
-
-    while True:
-        new_filepath = f"{base}_v{version}{ext}"
-        if not os.path.exists(new_filepath):
-            return new_filepath
-        version += 1
-
-
-import os
-from pathlib import Path
-
-def get_mp4_files_by_creation(folder_path):
-    """
-    Returns a list of .mp4 file paths in the folder, sorted by creation time (oldest first).
-    """
-    folder = Path(folder_path)
-    if not folder.is_dir():
-        raise ValueError(f"{folder_path} is not a valid directory.")
-
-    mp4_files = [f for f in folder.glob("*.mp4") if f.is_file()]
-    sorted_files = sorted(mp4_files, key=lambda f: f.stat().st_ctime)
-    return [str(f) for f in sorted_files]
-
-from moviepy.editor import VideoFileClip, concatenate_videoclips
-
-def combine_videos(video_folder, output_path="GoProVid.mp4"):
-    """
-    Combines a list of video file paths into one video in the given order.
-    
-    Parameters:
-    - video_paths: List of strings, each a path to an .mp4 file
-    - output_path: Path to save the combined video
-    """
-    video_paths = get_mp4_files_by_creation(video_folder)
-    
-    clips = []
-    for path in video_paths:
-        try:
-            clip = VideoFileClip(path)
-            clips.append(clip)
-        except Exception as e:
-            print(f"Error loading {path}: {e}")
-
-    if not clips:
-        raise ValueError("No valid video clips to combine.")
-
-    final_clip = concatenate_videoclips(clips, method="compose")
-    output_path = get_unique_filepath(output_path)
-    final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac",preset="ultrafast",threads=4)
-
-
-from moviepy.editor import VideoFileClip, CompositeVideoClip, TextClip
-
-def overlay_text(txt, duration, start_offset, stitched_height):
-    return (
-        TextClip(txt, fontsize=36, color='white', font="Arial-Bold")
-        .set_position(("center", stitched_height - 80))  # Keeps text inside frame
-        .set_duration(duration)
-        .set_start(start_offset)
-        .fadein(0.3)
-        .fadeout(0.3)
-    )
-
-def create_stitched_clip(
-    video0,
-    video2,
-    overlap_px=100, #350
-):
-    # Crop overlap
-    left_cropped = video0.crop(x2=video0.w - overlap_px)
-    right_cropped = video2.crop(x1=overlap_px)
-
-    # Position right clip
-    right_positioned = right_cropped.set_position((left_cropped.w, 0))
-
-    # Stitch dimensions
-    stitched_width = left_cropped.w + right_cropped.w
-    stitched_height = max(left_cropped.h, right_cropped.h)
-
-    # Combine clips
-    stitched_clip = CompositeVideoClip(
-        [left_cropped, right_positioned],
-        size=(stitched_width, stitched_height)
-    )
-
-    return stitched_clip
-
-from moviepy.editor import ImageClip, TextClip, ColorClip
-import os
-
-# def create_scoreboard(team1, score1, team2, score2,
-#                       logo1=None, logo2=None,
-#                       height=60, duration=5, padding=10):
-
-#     elements = []
-
-#     # Move scoreboard down so timer can sit above it
-#     Y_OFFSET = 80   # <--- THIS IS THE FIX
-
-#     bg_width = 600
-#     bg_height = height + padding*2
-
-#     # Background halves
-#     left_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
-#                 .set_duration(duration) \
-#                 .set_position((0, Y_OFFSET))
-
-#     right_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
-#                 .set_duration(duration) \
-#                 .set_position((bg_width // 2, Y_OFFSET))
-
-#     elements += [left_bg, right_bg]
-
-#     x_offset = padding
-#     y = padding + Y_OFFSET
-
-#     # Team 1 logo
-#     if logo1 and os.path.exists(logo1):
-#         logo_clip1 = ImageClip(logo1).resize(height=height).set_duration(duration)
-#         logo_clip1 = logo_clip1.set_position((x_offset, y))
-#         elements.append(logo_clip1)
-#         x_offset += logo_clip1.w + padding
-
-#     # Team 1 name + score
-#     t1 = TextClip(f"{team1} {score1}", fontsize=36, color='white', font="Arial") \
-#             .set_duration(duration) \
-#             .set_position((x_offset, y))
-#     elements.append(t1)
-#     x_offset += t1.w + padding
-
-#     # Dash
-#     dash = TextClip("-", fontsize=36, color='white', font="Arial") \
-#             .set_duration(duration) \
-#             .set_position((x_offset, y))
-#     elements.append(dash)
-#     x_offset += dash.w + padding
-
-#     # Team 2 name + score
-#     t2 = TextClip(f"{score2} {team2}", fontsize=36, color='white', font="Arial") \
-#             .set_duration(duration) \
-#             .set_position((x_offset, y))
-#     elements.append(t2)
-#     x_offset += t2.w + padding
-
-#     # Team 2 logo
-#     if logo2 and os.path.exists(logo2):
-#         logo_clip2 = ImageClip(logo2).resize(height=height).set_duration(duration)
-#         logo_clip2 = logo_clip2.set_position((x_offset, y))
-#         elements.append(logo_clip2)
-
-#     return elements
-
-def create_scoreboard(team1, score1, team2, score2,
-                      logo1=None, logo2=None,
-                      height=60, duration=5, padding=10):
-
-    elements = []
-
-    # Width of the scoreboard bar
-    bg_width = 600
-    bg_height = height + padding*2
-
-    # LEFT HALF = Black
-    left_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
-                .set_duration(duration) \
-                .set_position((0, 0))
-
-    # RIGHT HALF = Black
-    right_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
-                .set_duration(duration) \
-                .set_position((bg_width // 2, 0))
-
-    elements += [left_bg, right_bg]
-
-    x_offset = padding
-
-    # Team 1 logo (Non-bibs)
-    if logo1 and os.path.exists(logo1):
-        logo_clip1 = ImageClip(logo1).resize(height=height).set_duration(duration)
-        logo_clip1 = logo_clip1.set_position((x_offset, padding))
-        elements.append(logo_clip1)
-        x_offset += logo_clip1.w + padding
-
-    # Team 1 name + score
-    t1 = TextClip(f"{team1} {score1}", fontsize=36, color='white', font="Arial") \
-            .set_duration(duration) \
-            .set_position((x_offset, padding))
-    elements.append(t1)
-    x_offset += t1.w + padding
-
-    # Dash
-    dash = TextClip("-", fontsize=36, color='white', font="Arial") \
-            .set_duration(duration) \
-            .set_position((x_offset, padding))
-    elements.append(dash)
-    x_offset += dash.w + padding
-
-    # Team 2 name + score
-    t2 = TextClip(f"{score2} {team2}", fontsize=36, color='white', font="Arial") \
-            .set_duration(duration) \
-            .set_position((x_offset, padding))
-    elements.append(t2)
-    x_offset += t2.w + padding
-
-    # Team 2 logo (Bibs)
-    if logo2 and os.path.exists(logo2):
-        logo_clip2 = ImageClip(logo2).resize(height=height).set_duration(duration)
-        logo_clip2 = logo_clip2.set_position((x_offset, padding))
-        elements.append(logo_clip2)
-
-    return elements
-
-import re
-
-def extract_scores_from_block(score_text, team1, team2):
-    score1 = "0"
-    score2 = "0"
-
-    # Normalize whitespace
-    cleaned = score_text.replace("\r", "").replace("\t", "")
-    lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
-
-    # Look for "Team Name: X" in each line
-    for line in lines:
-        if line.startswith(team1 + ":"):
-            score1 = line.split(":")[1].strip()
-        elif line.startswith(team2 + ":"):
-            score2 = line.split(":")[1].strip()
-
-    return score1, score2
