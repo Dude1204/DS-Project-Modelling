@@ -240,8 +240,16 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
         def make_timer(t, base=start + time_diff if vid2 else start):
             current_time = base + int(t)
             minutes, seconds = divmod(int(current_time), 60)
-            return TextClip(f"{minutes}:{seconds:02d}", fontsize=36, color='white', font="Arial-Bold", bg_color='black')\
-                .set_position((TARGET_SIZE[0] - 150, 10)).set_duration(clip.duration).get_frame(t)
+            return TextClip(
+                f"{minutes}:{seconds:02d}",
+                fontsize=36,
+                color='white',
+                font="Arial-Bold",
+                bg_color='black'
+            ).get_frame(t)
+
+        timer_txt = VideoClip(make_timer, duration=clip.duration)
+        timer_txt = timer_txt.set_position((TARGET_SIZE[0] - 150, 10))
 
         timer_txt = VideoClip(make_timer, duration=clip.duration)
 
@@ -250,14 +258,38 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
                 .set_position(("center", "bottom")).set_duration(duration).set_start(start_offset)
         
         if update_score:
-            update_score=False
-            # Extract current score from tracker output
-            print(f"Tracker output for scoreboard: {final_scoreboard}")
-            score1, score2 = extract_scores_from_block(final_scoreboard, team_dict["n"], team_dict["b"])
-            print(f"Extracted scores - {team_dict['n']}: {score1}, {team_dict['b']}: {score2}")
+            update_score = False
 
-            #scoreboard_elements_pre = create_scoreboard(team1_name, score1_pre, team2_name, score2_pre, logo1, logo2)
-            scoreboard_elements = create_scoreboard(team_dict["n"], score1, team_dict["b"], score2, logo1, logo2,duration=clip.duration)
+            score1, score2 = extract_scores_from_block(final_scoreboard, team_dict["n"], team_dict["b"])
+
+            # PRE-GOAL SCOREBOARD (subtract 1 from scoring team)
+            score1_pre = str(int(score1) - 1) if h["team"] == "n" else score1
+            score2_pre = str(int(score2) - 1) if h["team"] == "b" else score2
+
+            scoreboard_elements_pre = create_scoreboard(
+                team_dict["n"], score1_pre,
+                team_dict["b"], score2_pre,
+                logo1, logo2,
+                duration=clip.duration
+            )
+            # FIX: scoreboard switches exactly 10 seconds into the clip
+            delay = mm_ss_to_seconds(h["time"]) - start
+
+            scoreboard_elements_post = create_scoreboard(
+                team_dict["n"], score1,
+                team_dict["b"], score2,
+                logo1, logo2,
+                duration=clip.duration - delay
+            )
+
+
+
+            scoreboard_elements_pre = [sb.set_start(0) for sb in scoreboard_elements_pre]
+            scoreboard_elements_post = [sb.set_start(delay) for sb in scoreboard_elements_post]
+
+            # Combine both
+            scoreboard_elements = scoreboard_elements_pre + scoreboard_elements_post
+
 
         if "zoom" in h:
             focal_x, focal_y = h["zoom"]
@@ -304,18 +336,6 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
         composite = composite.resize(newsize=TARGET_SIZE)
         highlight_clips.append(composite)
 
-    # print("\n--- DEBUG CLIP DURATIONS ---")
-    # print("team_intro:", getattr(team_intro, "duration", None))
-
-    # for idx, c in enumerate(highlight_clips):
-    #     print(f"highlight clip {idx}:", getattr(c, "duration", None))
-
-    # print("scoreboard_clip:", getattr(scoreboard_clip, "duration", None))
-
-    # if not final_score:
-    #     print("summary_clip:", getattr(summary_clip, "duration", None))
-
-    # print("--- END DEBUG ---\n")
     if final_score:
         final_scoreboard=f"""{team_dict["n"]}: {final_score["n"]}, {team_dict["b"]}: {final_score["b"]}"""
         scoreboard_clip = TextClip(final_scoreboard, fontsize=36, color='white', font="Arial", bg_color='black', size=video.size)\
