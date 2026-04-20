@@ -12,7 +12,7 @@ import math
 from PIL import Image
 import numpy as np
 import math
-from moviepy.editor import ImageClip, VideoClip
+from moviepy.editor import ImageClip, VideoClip, AudioClip
 
 
 change_settings({
@@ -79,21 +79,65 @@ def match_tracker(non_bibs_team_name, bibs_team_name):
         # Wait for next input and yield output
         team, scorer, assist, time = yield output_text
 
+from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip, ColorClip, ImageClip
+from PIL import Image
+import random
+
+# --- 1. Format player list (bullet points + captain highlight) ---
 def format_team(team):
-    lines = [f"{team['name']}"]
+    lines = []
     for p in team["players"]:
-        label = " (Captain)" if p == team["captain"] else ""
-        lines.append(f"{p}{label}")
+        cap = " (C)" if p == team["captain"] else ""
+        lines.append(f"{p}{cap}")
     return "\n".join(lines)
 
 
+# --- 2. Premier League–style team header bar ---
+def team_header(name, logo_path, width):
+    bar_height = 110
+
+    # Background bar
+    bar = ColorClip(size=(width, bar_height), color=(0, 0, 0))
+
+    # Logo
+    # logo = ImageClip(logo_path).resize(height=90).set_position((20, 10))
+    logo = ImageClip(logo_path).resize((100, 100)).set_position((0, 0))
+
+    # Team name
+    text = TextClip(
+        name,
+        fontsize=60,
+        color='white',
+        font="Arial-Bold",
+        method="label"
+    ).set_position((130, 20))
+
+    return CompositeVideoClip([bar, logo, text], size=(width, bar_height))
+
+
+# --- 3. Main intro generator ---
 def create_team_intro(non_bibs_team, bibs_team, game=1):
-    # Video settings
     width, height = 1280, 720
-    bg_color = 'black'
     duration = 5
 
-    # Create clips for each team
+    # Background
+    bg = ColorClip(size=(width, height), color=(0, 0, 0)).set_duration(duration)
+
+    # --- Left header (Non‑Bibs) ---
+    left_header = team_header(
+        non_bibs_team["name"],
+        non_bibs_team["logo"],
+        width // 2
+    ).set_position((0, 120)).set_duration(duration)
+
+    # --- Right header (Bibs) ---
+    right_header = team_header(
+        bibs_team["name"],
+        bibs_team["logo"],
+        width // 2
+    ).set_position(((width +150 )// 2, 120)).set_duration(duration)
+
+    # --- Player lists ---
     left_text = format_team(non_bibs_team)
     right_text = format_team(bibs_team)
 
@@ -103,9 +147,8 @@ def create_team_intro(non_bibs_team, bibs_team, game=1):
         color='white',
         font="Arial",
         method="caption",
-        size=(width // 2 - 50, None),
-        bg_color=bg_color
-    ).set_position((50, height // 2 - 100)).set_duration(duration)
+        size=(width // 2 - 80, None)
+    ).set_position((40, 260)).set_duration(duration)
 
     right_clip = TextClip(
         right_text,
@@ -113,25 +156,30 @@ def create_team_intro(non_bibs_team, bibs_team, game=1):
         color='white',
         font="Arial",
         method="caption",
-        size=(width // 2 - 50, None),
-        bg_color=bg_color
-    ).set_position((width // 2 + 50, height // 2 - 100)).set_duration(duration)
+        size=(width // 2 - 80, None)
+    ).set_position((width // 2 + 40, 260)).set_duration(duration)
 
-    # Game heading
+    # --- Game heading ---
     heading = TextClip(
         f"Game {game}",
-        fontsize=60,
+        fontsize=70,
         color='white',
         font="Arial-Bold",
         method="label"
-    ).set_position(("center", 50)).set_duration(duration)
+    ).set_position(("center", 20)).set_duration(duration)
 
-    # Background
-    bg = ColorClip(size=(width, height), color=(0, 0, 0)).set_duration(duration)
+    # --- Final composite ---
+    team_intro = CompositeVideoClip([
+        bg,
+        heading,
+        left_header,
+        right_header,
+        left_clip,
+        right_clip
+    ]).without_audio()
 
-    # Compose final clip
-    team_intro = CompositeVideoClip([bg, heading, left_clip, right_clip]).without_audio()
     return team_intro
+
 
 def create_summary_clip(highlights, combined=False):
         # === Step 1: Count goals and assists ===
@@ -309,65 +357,56 @@ def create_stitched_clip(
 
     return stitched_clip
 
+from moviepy.editor import ImageClip, TextClip, ColorClip
+import os
+
 def create_scoreboard(team1, score1, team2, score2,
                       logo1=None, logo2=None,
                       height=60, duration=5, padding=10):
 
     elements = []
 
-    # Width of the scoreboard bar
-    bg_width = 600
-    bg_height = height + padding*2
+    # Dimensions
+    BAR_HEIGHT = height + padding * 2
 
-    # LEFT HALF = Black
-    left_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
-                .set_duration(duration) \
-                .set_position((0, 0))
+    # Segment widths
+    SEG_LOGO = 120
+    SEG_SCORE = 200
+    SEG_LOGO2 = 120
 
-    # RIGHT HALF = Black
-    right_bg = ColorClip(size=(bg_width // 2, bg_height), color=(0, 0, 0)) \
-                .set_duration(duration) \
-                .set_position((bg_width // 2, 0))
+    # --- BACKGROUND SEGMENTS (NO BORDERS, TRANSPARENT) ---
+    x = 0
 
-    elements += [left_bg, right_bg]
-
-    x_offset = padding
-
-    # Team 1 logo (Non-bibs)
+    # --- LOGO 1 (Bibs FC) ---
     if logo1 and os.path.exists(logo1):
-        logo_clip1 = ImageClip(logo1).resize(height=height).set_duration(duration)
-        logo_clip1 = logo_clip1.set_position((x_offset, padding))
+        logo_clip1 = ImageClip(logo1).resize((75, 75)).set_duration(duration)
+        logo_clip1 = logo_clip1.set_position(
+            (25 + (SEG_LOGO - logo_clip1.w) // 2, padding - 10)
+        )
         elements.append(logo_clip1)
-        x_offset += logo_clip1.w + padding
 
-    # Team 1 name + score
-    t1 = TextClip(f"{team1} {score1}", fontsize=36, color='white', font="Arial") \
-            .set_duration(duration) \
-            .set_position((x_offset, padding))
-    elements.append(t1)
-    x_offset += t1.w + padding
+    # --- SCORE TEXT ---
+    score_text = TextClip(
+        f"{score1}  -  {score2}",
+        fontsize=40,
+        color='green',
+        font="Arial-Bold"
+    ).set_duration(duration).set_position(
+        (SEG_LOGO + (SEG_SCORE - 140) // 2, padding)
+    )
+    elements.append(score_text)
 
-    # Dash
-    dash = TextClip("-", fontsize=36, color='white', font="Arial") \
-            .set_duration(duration) \
-            .set_position((x_offset, padding))
-    elements.append(dash)
-    x_offset += dash.w + padding
-
-    # Team 2 name + score
-    t2 = TextClip(f"{score2} {team2}", fontsize=36, color='white', font="Arial") \
-            .set_duration(duration) \
-            .set_position((x_offset, padding))
-    elements.append(t2)
-    x_offset += t2.w + padding
-
-    # Team 2 logo (Bibs)
+    # --- LOGO 2 (Non‑Bibs FC) ---
     if logo2 and os.path.exists(logo2):
-        logo_clip2 = ImageClip(logo2).resize(height=height).set_duration(duration)
-        logo_clip2 = logo_clip2.set_position((x_offset, padding))
+        logo_clip2 = ImageClip(logo2).resize((75, 75)).set_duration(duration)
+        logo_clip2 = logo_clip2.set_position(
+            (-70 + SEG_LOGO + SEG_SCORE + (SEG_LOGO2 - logo_clip2.w) // 2, padding - 10)
+        )
         elements.append(logo_clip2)
 
     return elements
+
+
 
 def extract_scores_from_block(score_text, team1, team2):
     score1 = "0"
@@ -417,8 +456,6 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
     highlight_clips = []
     update_score = False
 
-    logo1 = non_bibs_team.get("logo")
-    logo2 = bibs_team.get("logo")
     scoreboard_elements = create_scoreboard(team_dict["n"], "0", team_dict["b"], "0", logo1, logo2,duration=15)
     scored = False
     for i, h in enumerate(highlights):
@@ -451,19 +488,34 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
             if any(tag in text for tag in ["Kick-off", "2nd Angle", "Replay", "Penalty"]):
                 text_duration = clip.duration
 
+        # def make_timer(t, base=start + time_diff if vid2 else start):
+        #     current_time = base + int(t)
+        #     minutes, seconds = divmod(int(current_time), 60)
+        #     return TextClip(
+        #         f"{minutes}:{seconds:02d}",
+        #         fontsize=36,
+        #         color='white',
+        #         font="Arial-Bold",
+        #         bg_color='black'
+        #     ).get_frame(t)
+
+        # timer_txt = VideoClip(make_timer, duration=clip.duration)
+        # timer_txt = timer_txt.set_position(("right", "top"))
+
         def make_timer(t, base=start + time_diff if vid2 else start):
             current_time = base + int(t)
             minutes, seconds = divmod(int(current_time), 60)
             return TextClip(
                 f"{minutes}:{seconds:02d}",
                 fontsize=36,
-                color='white',
+                color='green',          # GREEN TEXT
                 font="Arial-Bold",
-                bg_color='black'
+                bg_color='white'        # WHITE BACKGROUND
             ).get_frame(t)
 
         timer_txt = VideoClip(make_timer, duration=clip.duration)
         timer_txt = timer_txt.set_position(("right", "top"))
+
 
         def overlay_text(txt, duration, start_offset):
             return TextClip(txt, fontsize=36, color='white', font="Arial-Bold")\
@@ -498,6 +550,7 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
 
 
             scoreboard_elements_pre = [sb.set_start(0) for sb in scoreboard_elements_pre]
+            scoreboard_elements_pre = [sb.set_end(delay) for sb in scoreboard_elements_pre]
             scoreboard_elements_post = [sb.set_start(delay) for sb in scoreboard_elements_post]
 
             # Combine both
@@ -576,6 +629,8 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
 
             clip = video_ha.subclip(time - 5, time + 2)  # Replay is shorter and starts a bit later
 
+            silent_audio = AudioClip(lambda t: 0, duration=clip.duration, fps=44100)
+            clip = clip.set_audio(silent_audio)
             txt = overlay_text("Replay", clip.duration,0)
             composite = CompositeVideoClip([clip, txt])
             composite = composite.resize(newsize=TARGET_SIZE)
