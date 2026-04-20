@@ -650,3 +650,72 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
         final_highlights = concatenate_videoclips([team_intro] + highlight_clips + [scoreboard_clip, summary_clip], method="compose")
     save_to = get_unique_filepath(path.replace("..", "").replace("\\", "").replace(".mp4", f" Highlights - {str(dt.datetime.now())[:10]}.mp4"))
     final_highlights.write_videofile(save_to, codec="libx264", fps=25)
+
+from moviepy.editor import VideoFileClip
+from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+import random
+
+def create_custom_thumbnail(
+    video_path,
+    forest_logo_path,
+    bib_logo,
+    nonbib_logo,
+    bib_score,
+    nonbib_score,
+    output_path="thumbnail.jpg",
+    frame_time=None,
+):
+    WIDTH, HEIGHT = 1280, 720
+    LEFT_W = 500
+    RIGHT_W = WIDTH - LEFT_W
+
+    # --- 1. Extract frame from video for right side ---
+    clip = VideoFileClip(video_path)
+    if frame_time is None:
+        frame_time = clip.duration * random.uniform(0.3, 0.7)
+    frame = clip.get_frame(frame_time)
+    right_img = Image.fromarray(frame).resize((RIGHT_W, HEIGHT))
+
+    # --- 2. Create left panel background ---
+    left_panel = Image.new("RGBA", (LEFT_W, HEIGHT), (34, 85, 34, 255))  # Forest green
+    overlay = Image.new("RGBA", left_panel.size, (0, 0, 0, 120))
+    left_panel = Image.alpha_composite(left_panel, overlay)
+
+    # --- 3. Create base canvas ---
+    canvas = Image.new("RGBA", (WIDTH, HEIGHT))
+    canvas.paste(left_panel, (0, 0))
+    canvas.paste(right_img, (LEFT_W, 0))
+
+    draw = ImageDraw.Draw(canvas)
+
+    # Fonts
+    font_big = ImageFont.truetype("arialbd.ttf", 150)
+    font_mid = ImageFont.truetype("arialbd.ttf", 60)
+    font_small = ImageFont.truetype("arialbd.ttf", 30)
+
+    # --- 4. Left side content ---
+    # Random + logo + Forrest FC
+    draw.text((100, 40), "Random", fill="white", font=font_small)
+
+    forest_logo = Image.open(forest_logo_path).convert("RGBA").resize((50, 50))
+    canvas.paste(forest_logo, (215, 35), forest_logo)
+
+    draw.text((260, 40), "Forrest FC", fill="white", font=font_small)
+
+    # Highlights text
+    draw.text((100, 100), "Highlights", fill="white", font=font_mid)
+
+    # --- 5. Bibs FC logo + score ---
+    bib = Image.open(bib_logo).convert("RGBA").resize((400, 400))
+    canvas.paste(bib, (-40, 150), bib)
+    draw.text((320, 250), str(bib_score), fill="white", font=font_big)
+
+    # --- 6. Non‑Bibs FC logo + score ---
+    nb = Image.open(nonbib_logo).convert("RGBA").resize((400, 400))
+    canvas.paste(nb, (-40, 400), nb)
+    draw.text((320, 500), str(nonbib_score), fill="white", font=font_big)
+
+    # --- 7. Save ---
+    canvas.convert("RGB").save(output_path, quality=95)
+    return output_path
