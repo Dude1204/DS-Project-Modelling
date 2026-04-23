@@ -219,7 +219,7 @@ def create_summary_clip(highlights, combined=False):
     # === Step 3: Create summary clip ===
     summary_clip = TextClip(
         summary_text, fontsize=36, color='white', font="Arial", bg_color='black', size=[1280, 720]
-    ).set_duration(15).set_position("center").without_audio()
+    ).set_duration(10).set_position("center").without_audio()
 
 
     return summary_clip
@@ -426,7 +426,7 @@ def extract_scores_from_block(score_text, team1, team2):
     return score1, score2
 
 
-def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[],final_score=None, cam2=None, replays=None):
+def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_clips=0, game=1, fix_scores=[],final_score=None, cam2=None, replays=None, insta=True):
     video0 = VideoFileClip(path)
     TARGET_SIZE = video0.size   # (width, height)
     video2 = None
@@ -458,14 +458,20 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
 
     scoreboard_elements = create_scoreboard(team_dict["n"], "0", team_dict["b"], "0", logo1, logo2,duration=15)
     scored = False
+    once = False
     for i, h in enumerate(highlights):
         angle = h.get("angle", 0)
         video = video2 if angle == 1 and video2 else video0
         vid2 = video is video2
 
-        time_diff -= h.get("time_adjustment", 0)
-        time_diff_h -= h.get("time_adjustment", 0)
-        time_diff_a -= h.get("time_adjustment", 0)
+        adj=0
+        
+        if insta and (h["time"] > 29) and not once:
+            adj = 15
+            once = True
+        time_diff -= h.get("time_adjustment", adj)
+        time_diff_h -= h.get("time_adjustment", adj)
+        time_diff_a -= h.get("time_adjustment", adj)
 
         start = mm_ss_to_seconds(h.get("start", h["time"])) - (10 if "start" not in h else 0) - extend_clips
         end = mm_ss_to_seconds(h.get("end", h["time"])) + (5 if "end" not in h else 0) + extend_clips
@@ -696,24 +702,24 @@ def create_custom_thumbnail(
 
     # --- 4. Left side content ---
     # Random + logo + Forrest FC
-    draw.text((100, 40), "Random", fill="white", font=font_small)
+    draw.text((85, 30), "Random", fill="white", font=font_small)
 
-    forest_logo = Image.open(forest_logo_path).convert("RGBA").resize((50, 50))
-    canvas.paste(forest_logo, (215, 35), forest_logo)
+    forest_logo = Image.open(forest_logo_path).convert("RGBA").resize((150, 150))
+    canvas.paste(forest_logo, (175, -10), forest_logo)
 
-    draw.text((260, 40), "Forrest FC", fill="white", font=font_small)
+    draw.text((295, 30), "Forest FC", fill="white", font=font_small)
 
     # Highlights text
     draw.text((100, 100), "Highlights", fill="white", font=font_mid)
 
     # --- 5. Bibs FC logo + score ---
-    bib = Image.open(bib_logo).convert("RGBA").resize((400, 400))
-    canvas.paste(bib, (-40, 150), bib)
+    bib = Image.open(bib_logo).convert("RGBA").resize((250, 250))
+    canvas.paste(bib, (30, 200), bib)
     draw.text((320, 250), str(bib_score), fill="white", font=font_big)
 
     # --- 6. Non‑Bibs FC logo + score ---
-    nb = Image.open(nonbib_logo).convert("RGBA").resize((400, 400))
-    canvas.paste(nb, (-40, 400), nb)
+    nb = Image.open(nonbib_logo).convert("RGBA").resize((250, 250))
+    canvas.paste(nb, (30, 450), nb)
     draw.text((320, 500), str(nonbib_score), fill="white", font=font_big)
 
     # --- 7. Save ---
