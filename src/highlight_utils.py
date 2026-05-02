@@ -466,7 +466,7 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
 
         adj=0
         
-        if insta and (h["time"] > 29) and not once:
+        if insta and (h["time"] > 28.57) and not once:
             adj = 15
             once = True
         time_diff -= h.get("time_adjustment", adj)
@@ -569,6 +569,13 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
                     logo1, logo2,
                     duration=clip.duration
                 )
+            else:
+                scoreboard_elements = create_scoreboard(
+                    team_dict["n"], 0,
+                    team_dict["b"], 0,
+                    logo1, logo2,
+                    duration=clip.duration
+                )
 
         if "zoom" in h:
             focal_x, focal_y = h["zoom"]
@@ -627,7 +634,7 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
         composite = composite.resize(newsize=TARGET_SIZE)
         highlight_clips.append(composite)
 
-        if "replay" in h and replays:
+        if ("replay" in h) and replays:
             time_diff_ha = time_diff_h if h["replay"] == "h" else time_diff_a
             video_ha = video_h if h["replay"] == "h" else video_a
 
@@ -641,6 +648,7 @@ def create_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cli
             composite = CompositeVideoClip([clip, txt])
             composite = composite.resize(newsize=TARGET_SIZE)
             highlight_clips.append(composite)
+
 
     if final_score:
         final_scoreboard=f"""{team_dict["n"]}: {final_score["n"]}, {team_dict["b"]}: {final_score["b"]}"""
