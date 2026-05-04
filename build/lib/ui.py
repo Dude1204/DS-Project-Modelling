@@ -1,6 +1,5 @@
 import os
 import tempfile
-import time
 from pathlib import Path
 import streamlit as st
 import json
@@ -21,7 +20,7 @@ st.sidebar.subheader("Non-Bibs Team")
 non_bibs_name = st.sidebar.text_input("Team Name", "Non-bibs FC")
 non_bibs_players = st.sidebar.text_area("Players (comma-separated)", "George, Gerald, Alex, Ben, Yaw, JC, Sam")
 non_bibs_captain = st.sidebar.selectbox("Captain", non_bibs_players.split(", ") if non_bibs_players else [])
-non_bibs_logo_text = st.sidebar.text_input("Logo Path", value="src/logos/Non-Bibs Logo.png", key="non_bibs_logo_text")
+non_bibs_logo_text = st.sidebar.text_input("Logo Path", value="logos/Non-Bibs Logo.png", key="non_bibs_logo_text")
 non_bibs_logo = st.sidebar.file_uploader("Upload Logo", type=["png", "jpg"], key="non_bibs_logo")
 
 # Bibs Team
@@ -29,7 +28,7 @@ st.sidebar.subheader("Bibs Team")
 bibs_name = st.sidebar.text_input("Team Name", "Bibs FC")
 bibs_players = st.sidebar.text_area("Players (comma-separated)", "Manzan, Jason, Pavlos, Kevin, Aaron, Yi, Ringer")
 bibs_captain = st.sidebar.selectbox("Captain", bibs_players.split(", ") if bibs_players else [])
-bibs_logo_text = st.sidebar.text_input("Logo Path", value="src/logos/Bibs Logo.png", key="bibs_logo_text")
+bibs_logo_text = st.sidebar.text_input("Logo Path", value="logos/Bibs Logo.png", key="bibs_logo_text")
 bibs_logo = st.sidebar.file_uploader("Upload Logo", type=["png", "jpg"], key="bibs_logo")
 
 # Video and Settings
@@ -51,21 +50,17 @@ highlights_input = st.text_area(
 st.header("Optional Settings")
 use_cam2 = st.checkbox("Use Cam2")
 cam2_time = 0.0
-cam2_path_text = ""
-cam2_upload = None
+cam2_path = ""
 cam2_overlap = 100
 if use_cam2:
     cam2_time = st.number_input("Cam2 Time", 0.0, step=0.01)
-    cam2_path_text = st.text_input("Cam2 Path", value="Game 1 Cam2.mp4", key="cam2_path_text")
-    cam2_upload = st.file_uploader("Upload Cam2", type=["mp4", "avi", "mov", "mkv"], key="cam2_upload")
+    cam2_path = st.text_input("Cam2 Path", value="Game 1 Cam2.mp4")
     cam2_overlap = st.number_input("Cam2 Overlap PX", 100)
 
 replays_h_time = st.number_input("Replays Home Time", 0.0, step=0.01)
-replays_h_path_text = st.text_input("Replays Home Path", value="Game 1 Home.mp4", key="replays_h_text")
-replays_h_upload = st.file_uploader("Upload Home Replay", type=["mp4", "avi", "mov", "mkv"], key="replays_h_upload")
+replays_h_path = st.text_input("Replays Home Path", value="Game 1 Home.mp4")
 replays_a_time = st.number_input("Replays Away Time", 0.0, step=0.01)
-replays_a_path_text = st.text_input("Replays Away Path", value="Game 1 Away.mp4", key="replays_a_text")
-replays_a_upload = st.file_uploader("Upload Away Replay", type=["mp4", "avi", "mov", "mkv"], key="replays_a_upload")
+replays_a_path = st.text_input("Replays Away Path", value="Game 1 Away.mp4")
 
 # Fix Scores
 fix_scores_input = st.text_area("Fix Scores (JSON)", "[]")
@@ -86,22 +81,17 @@ def resolve_input_path(path_input):
     if path.is_absolute():
         return path
 
-    # Accept both `src/logos/...` and `logos/...` when resolving in this app.
-    normalized_path = path
-    if normalized_path.parts and normalized_path.parts[0] == "src":
-        normalized_path = Path(*normalized_path.parts[1:])
-
     # Try the app directory first, then current working directory.
-    app_path = APP_DIR / normalized_path
+    app_path = APP_DIR / path_input
     if app_path.exists():
         return app_path
 
-    cwd_path = Path.cwd() / normalized_path
+    cwd_path = Path.cwd() / path_input
     if cwd_path.exists():
         return cwd_path
 
     # fallback to the raw path so the original function can raise a meaningful error
-    return normalized_path
+    return path
 
 
 def update_progress(log_container, progress_bar, logs, message, progress=None):
@@ -152,54 +142,22 @@ if st.button("Generate and Preview Highlight Video"):
             raise FileNotFoundError("Please provide main video file or path.")
 
         cam2 = None
-        if use_cam2 and (cam2_upload or cam2_path_text):
-            # Handle cam2 upload
-            if cam2_upload:
-                cam2_file = cam2_upload.name
-                with open(cam2_file, "wb") as f:
-                    f.write(cam2_upload.getbuffer())
-                resolved_cam2_path = cam2_file
-            elif cam2_path_text:
-                resolved_cam2_path = resolve_input_path(cam2_path_text)
-                if not resolved_cam2_path or not resolved_cam2_path.exists():
-                    raise FileNotFoundError(f"Cam2 video not found: {cam2_path_text}")
-            
+        if use_cam2 and cam2_path:
+            resolved_cam2_path = resolve_input_path(cam2_path)
+            if not resolved_cam2_path or not resolved_cam2_path.exists():
+                raise FileNotFoundError(f"Cam2 video not found: {cam2_path}")
             cam2 = {"time": cam2_time, "path": str(resolved_cam2_path), "overlap_px": cam2_overlap}
 
         replays = None
-        if replays_h_upload or replays_h_path_text or replays_a_upload or replays_a_path_text:
-            # Handle home replay
-            if replays_h_upload:
-                replays_h_file = replays_h_upload.name
-                with open(replays_h_file, "wb") as f:
-                    f.write(replays_h_upload.getbuffer())
-                resolved_replays_h = replays_h_file
-            elif replays_h_path_text:
-                resolved_replays_h = resolve_input_path(replays_h_path_text)
-                if not resolved_replays_h or not resolved_replays_h.exists():
-                    raise FileNotFoundError(f"Home replay not found: {replays_h_path_text}")
-            else:
-                resolved_replays_h = None
-
-            # Handle away replay
-            if replays_a_upload:
-                replays_a_file = replays_a_upload.name
-                with open(replays_a_file, "wb") as f:
-                    f.write(replays_a_upload.getbuffer())
-                resolved_replays_a = replays_a_file
-            elif replays_a_path_text:
-                resolved_replays_a = resolve_input_path(replays_a_path_text)
-                if not resolved_replays_a or not resolved_replays_a.exists():
-                    raise FileNotFoundError(f"Away replay not found: {replays_a_path_text}")
-            else:
-                resolved_replays_a = None
-
-            # Both must exist for replays to work
-            if resolved_replays_h and resolved_replays_a:
-                replays = {
-                    "time_h": replays_h_time, "path_h": str(resolved_replays_h),
-                    "time_a": replays_a_time, "path_a": str(resolved_replays_a)
-                }
+        if replays_h_path and replays_a_path:
+            resolved_replays_h = resolve_input_path(replays_h_path)
+            resolved_replays_a = resolve_input_path(replays_a_path)
+            if not resolved_replays_h.exists() or not resolved_replays_a.exists():
+                raise FileNotFoundError("Replay files not found; check the replay paths")
+            replays = {
+                "time_h": replays_h_time, "path_h": str(resolved_replays_h),
+                "time_a": replays_a_time, "path_a": str(resolved_replays_a)
+            }
 
         fix_scores = json.loads(fix_scores_input)
 
@@ -211,33 +169,60 @@ if st.button("Generate and Preview Highlight Video"):
             cam2=cam2, replays=replays
         )
 
-        # Render once at full quality
-        output_path = f"highlight_game_{game_number}.mp4"
-        update_progress(status_container, progress_bar, logs, "Rendering video at full quality", 70)
-        
-        start_time = time.time()
-        clip.write_videofile(
-            output_path,
-            codec="libx264",
-            fps=30,
-            preset="medium",
-            bitrate="2000k",
-            audio=True,
-            verbose=False
-        )
-        elapsed_time = time.time() - start_time
-        
-        # Convert elapsed time to minutes and seconds
-        minutes = int(elapsed_time // 60)
-        seconds = int(elapsed_time % 60)
-        time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
-        
-        update_progress(status_container, progress_bar, logs, f"Rendering complete - Time: {time_str}", 85)
-        
-        # Display the saved video as preview
-        st.video(output_path)
-        update_progress(status_container, progress_bar, logs, f"Saved to: {os.path.abspath(output_path)}", 100)
-        st.success(f"✓ Video saved to: {os.path.abspath(output_path)} ({time_str})")
+        st.session_state['preview_clip'] = clip
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            preview_path = os.path.join(tmpdir, "preview.mp4")
+            update_progress(status_container, progress_bar, logs, "Rendering preview video", 70)
+            clip.write_videofile(
+                preview_path,
+                codec="libx264",
+                fps=15,
+                preset="ultrafast",
+                bitrate="500k",
+                audio=False,
+                verbose=False,
+                logger=None
+            )
+            update_progress(status_container, progress_bar, logs, "Preview ready", 100)
+            st.video(preview_path)
 
     except Exception as e:
         st.error(f"Error: {str(e)}")
+
+if 'preview_clip' in st.session_state:
+    if st.button("Save Highlight Video"):
+        try:
+            output_path = f"highlight_game_{game_number}.mp4"
+            st.session_state['preview_clip'].write_videofile(
+                output_path,
+                codec="libx264",
+                fps=30,
+                preset="medium",
+                bitrate="2000k",
+                audio=True,
+                verbose=False,
+                logger=None
+            )
+            st.success(f"Highlight video saved as: {output_path}")
+        except Exception as e:
+            st.error(f"Save error: {str(e)}")
+
+    # Live preview with frame scrubbing
+    clip = st.session_state['preview_clip']
+    duration = clip.duration
+    time_slider = st.slider("Scrub through the video", 0.0, duration, 0.0, 0.1, key="time_slider")
+    frame = clip.get_frame(time_slider)
+    st.image(frame, caption=f"Frame at {time_slider:.1f} seconds")
+
+st.header("Create Thumbnail")
+thumbnail_time = st.number_input("Thumbnail Time (seconds)", 0.0, step=0.1)
+if st.button("Create Thumbnail"):
+    if 'preview_clip' in st.session_state:
+        frame = st.session_state['preview_clip'].get_frame(thumbnail_time)
+        from PIL import Image
+        img = Image.fromarray(frame)
+        img.save("thumbnail.png")
+        st.image("thumbnail.png", caption=f"Thumbnail at {thumbnail_time:.1f} seconds")
+    else:
+        st.error("Generate video first")
