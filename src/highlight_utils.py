@@ -564,8 +564,8 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
             time_diff_h -= h.get("time_adjustment", adj)
             time_diff_a -= h.get("time_adjustment", adj)
 
-        start = mm_ss_to_seconds(h.get("start", h["time"])) - (10 if "start" not in h else 0) - extend_clips
-        end = mm_ss_to_seconds(h.get("end", h["time"])) + (5 if "end" not in h else 0) + extend_clips
+        start = mm_ss_to_seconds(h.get("start", h["time"])) - (h.get("start_offset", 10) if "start" not in h else 0) - extend_clips
+        end = mm_ss_to_seconds(h.get("end", h["time"])) + (h.get("end_offset", 5) if "end" not in h else 0) + extend_clips
         start -= time_diff if vid2 else 0
         end -= time_diff if vid2 else 0
         extra_time = max(0, (end - start - 15) if "end" in h and "time" in h else 0)
