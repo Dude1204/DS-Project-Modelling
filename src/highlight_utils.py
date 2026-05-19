@@ -2,6 +2,7 @@
 # Utility functions for creating football match highlight videos
 
 import os
+from pathlib import Path
 import random
 import datetime as dt
 from collections import defaultdict
@@ -737,6 +738,15 @@ def create_custom_thumbnail(video_path, forest_logo_path, bib_logo, nonbib_logo,
     """
     Create a custom thumbnail for the video.
     """
+    # Normalize and fallback for forest logo
+    try:
+        forest_logo_path = str(forest_logo_path) if forest_logo_path else ""
+    except Exception:
+        forest_logo_path = ""
+
+    if not forest_logo_path or not os.path.exists(forest_logo_path):
+        forest_logo_path = str(Path(__file__).resolve().parent / "logos" / "Random Forest Logo.png")
+
     # Extract frame from video for right side
     clip = VideoFileClip(video_path)
     if frame_time is None:

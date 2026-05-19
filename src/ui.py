@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 import streamlit as st
 import json
+import base64
+import streamlit.components.v1 as components
 from highlight_utils import create_highlight_clip, compose_highlight_clip, create_custom_thumbnail
 
 APP_DIR = Path(__file__).resolve().parent
@@ -32,8 +34,43 @@ def get_output_filename(game_number, ext="mp4"):
 # Default logos
 DEFAULT_NON_BIBS_LOGO = APP_DIR / "logos" / "Non-Bibs Logo.png"
 DEFAULT_BIBS_LOGO = APP_DIR / "logos" / "Bibs Logo.png"
+RANDOM_FOREST_LOGO = APP_DIR / "logos" / "Random Forest Logo.png"
 
 st.title("Football Highlight Maker")
+
+
+def safe_rerun():
+    """Try to rerun the Streamlit script in a backwards-compatible way.
+
+    - Prefer `st.experimental_rerun()` when available.
+    - Fallback to `st.rerun()` when available.
+    - Fallback to raising Streamlit's internal `RerunException` if present.
+    - Final fallback: call `st.stop()` to end execution.
+    """
+    try:
+        if hasattr(st, "experimental_rerun"):
+            try:
+                st.experimental_rerun()
+                return
+            except Exception:
+                pass
+        if hasattr(st, "rerun"):
+            try:
+                st.rerun()
+                return
+            except Exception:
+                pass
+        try:
+            from streamlit.runtime.scriptrunner.script_runner import RerunException
+            raise RerunException()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    try:
+        st.stop()
+    except Exception:
+        return
 
 EVENT_TYPES = [
     "Kick-off",
@@ -114,6 +151,8 @@ def build_config_data():
         },
         "settings": {
             "use_fix_scores": st.session_state.get("use_fix_scores", False),
+            "default_replay_non_bibs": st.session_state.get("default_replay_non_bibs", "None"),
+            "default_replay_bibs": st.session_state.get("default_replay_bibs", "None"),
         },
         "highlights": st.session_state.get("highlights_list", []),
         "fix_scores": st.session_state.get("fix_scores_list", []),
@@ -158,6 +197,18 @@ def load_session_config(config):
     st.session_state.replays_a_time = away_replay.get("time", st.session_state.get("replays_a_time", 0.0))
     st.session_state.replays_a_path_text = away_replay.get("path", st.session_state.get("replays_a_path_text", ""))
 
+    # Clear any stale upload state when restoring a saved session config.
+    for upload_key in [
+        "video_path",
+        "cam2_upload",
+        "replays_h_upload",
+        "replays_a_upload",
+        "non_bibs_logo",
+        "bibs_logo",
+    ]:
+        if upload_key in st.session_state:
+            st.session_state.pop(upload_key, None)
+
     st.session_state.highlights_list = config.get("highlights", st.session_state.get("highlights_list", []))
     st.session_state.fix_scores_list = config.get("fix_scores", st.session_state.get("fix_scores_list", []))
     st.session_state.final_score_n = config.get("final_score", {}).get("n", st.session_state.get("final_score_n", 0))
@@ -165,8 +216,9 @@ def load_session_config(config):
     st.session_state.game_number = config.get("game_number", st.session_state.get("game_number", 1))
     st.session_state.use_fix_scores = config.get("settings", {}).get("use_fix_scores", bool(st.session_state.fix_scores_list))
     st.session_state.home_team = config.get("home_team", st.session_state.get("home_team", "Non-Bibs"))
-
-    st.session_state.config_loaded_file = config.get("config_filename") or config.get("generated_at")
+    # Load persisted per-team default replay settings
+    st.session_state.default_replay_non_bibs = config.get("settings", {}).get("default_replay_non_bibs", st.session_state.get("default_replay_non_bibs", "None"))
+    st.session_state.default_replay_bibs = config.get("settings", {}).get("default_replay_bibs", st.session_state.get("default_replay_bibs", "None"))
 
 
 def save_session_config_file(filename=None):
@@ -189,11 +241,14 @@ if st.sidebar.button("Save Session Config", key="save_config_btn"):
         st.sidebar.error(f"Unable to save config: {e}")
 
 if config_file:
-    if st.session_state.get("config_loaded_file") != getattr(config_file, "name", None):
+    config_file_name = getattr(config_file, "name", None)
+    if st.session_state.get("config_loaded_file") != config_file_name:
         try:
             config = json.load(config_file)
             load_session_config(config)
+            st.session_state.config_loaded_file = config_file_name
             st.success("Config loaded from JSON")
+            safe_rerun()
         except Exception as e:
             st.error(f"Failed to load config: {e}")
 
@@ -226,36 +281,43 @@ get_default_state("home_team", "Non-Bibs")
 get_default_state("current_timestamp", 0.0)
 get_default_state("edit_index", None)
 get_default_state("edit_mode", None)
+get_default_state("default_replay_non_bibs", "None")
+get_default_state("default_replay_bibs", "None")
 get_default_state("config_loaded_file", None)
 
 st.sidebar.subheader("Team Setup")
 
 # Non-Bibs Team
-non_bibs_name = st.sidebar.text_input("Non-Bibs Team Name", value=st.session_state.non_bibs_name, key="non_bibs_name")
-non_bibs_players = st.sidebar.text_area("Non-Bibs Players (comma-separated)", value=st.session_state.non_bibs_players, key="non_bibs_players")
+non_bibs_name = st.sidebar.text_input("Non-Bibs Team Name", key="non_bibs_name")
+non_bibs_players = st.sidebar.text_area("Non-Bibs Players (comma-separated)", key="non_bibs_players")
 non_bibs_captain = st.sidebar.selectbox("Non-Bibs Captain", parse_player_names(st.session_state.non_bibs_players), index=0 if st.session_state.non_bibs_captain in parse_player_names(st.session_state.non_bibs_players) else 0, key="non_bibs_captain")
-non_bibs_logo_text = st.sidebar.text_input("Non-Bibs Logo Path", value=st.session_state.non_bibs_logo_text, key="non_bibs_logo_text")
+non_bibs_logo_text = st.sidebar.text_input("Non-Bibs Logo Path", key="non_bibs_logo_text")
 non_bibs_logo = st.sidebar.file_uploader("Non-Bibs Logo Upload", type=["png", "jpg"], key="non_bibs_logo")
 
 # Bibs Team
 st.sidebar.subheader("Bibs Team")
-bibs_name = st.sidebar.text_input("Bibs Team Name", value=st.session_state.bibs_name, key="bibs_name")
-bibs_players = st.sidebar.text_area("Bibs Players (comma-separated)", value=st.session_state.bibs_players, key="bibs_players")
+bibs_name = st.sidebar.text_input("Bibs Team Name", key="bibs_name")
+bibs_players = st.sidebar.text_area("Bibs Players (comma-separated)", key="bibs_players")
 bibs_captain = st.sidebar.selectbox("Bibs Captain", parse_player_names(st.session_state.bibs_players), index=0 if st.session_state.bibs_captain in parse_player_names(st.session_state.bibs_players) else 0, key="bibs_captain")
-bibs_logo_text = st.sidebar.text_input("Bibs Logo Path", value=st.session_state.bibs_logo_text, key="bibs_logo_text")
+bibs_logo_text = st.sidebar.text_input("Bibs Logo Path", key="bibs_logo_text")
 bibs_logo = st.sidebar.file_uploader("Bibs Logo Upload", type=["png", "jpg"], key="bibs_logo")
 
 st.sidebar.subheader("Venue")
 home_team = st.sidebar.selectbox("Home Team", ["Non-Bibs", "Bibs"], index=0 if st.session_state.home_team == "Non-Bibs" else 1, key="home_team")
 away_team = "Bibs" if home_team == "Non-Bibs" else "Non-Bibs"
 st.sidebar.write(f"Away Team: {away_team}")
+st.sidebar.divider()
+st.sidebar.subheader("Default Replay Camera")
+st.sidebar.write("Choose which replay camera should be used by default for each team when adding goals.")
+default_rb = st.sidebar.selectbox("Non-Bibs default replay", ["None", "Home", "Away"], index=["None", "Home", "Away"].index(st.session_state.get("default_replay_non_bibs", "None")), key="default_replay_non_bibs")
+default_bb = st.sidebar.selectbox("Bibs default replay", ["None", "Home", "Away"], index=["None", "Home", "Away"].index(st.session_state.get("default_replay_bibs", "None")), key="default_replay_bibs")
 
 # Video and Settings
 st.header("Video Settings")
-video_path_text = st.text_input("Main Video Path", value=st.session_state.video_path_text, key="video_path_text")
+video_path_text = st.text_input("Main Video Path", key="video_path_text")
 video_path = st.file_uploader("Upload Main Video", type=["mp4", "avi", "mov", "mkv"], key="video_path")
-game_number = st.number_input("Game Number", 1, 10, value=st.session_state.game_number, key="game_number")
-extend_clips = st.number_input("Extend Clips (seconds)", 0, 10, value=st.session_state.extend_clips, key="extend_clips")
+game_number = st.number_input("Game Number", 1, 10, key="game_number")
+extend_clips = st.number_input("Extend Clips (seconds)", 0, 10, key="extend_clips")
 
 def set_edit_state(idx):
     if idx >= len(st.session_state.highlights_list):
@@ -319,21 +381,32 @@ if st.session_state.highlights_list:
         with col3:
             if st.button("Delete", key=f"del_{idx}"):
                 st.session_state.highlights_list.pop(idx)
-                st.experimental_rerun()
+                safe_rerun()
 
 if st.session_state.edit_index is not None:
     st.divider()
     st.subheader("Edit Highlight/Event")
     if st.session_state.edit_mode == "goal":
-        edit_goal_time = st.number_input("Time (MM.SS format)", value=st.session_state.edit_time, step=0.01, key="edit_goal_time")
+        edit_goal_time = st.number_input("Time (MM.SS format)", step=0.01, key="edit_goal_time")
         edit_goal_team = st.selectbox("Scoring Team", ["Non-Bibs", "Bibs"], index=0 if st.session_state.edit_goal_team == "Non-Bibs" else 1, key="edit_goal_team")
         edit_goal_options = build_player_options(edit_goal_team, parse_player_names(st.session_state.non_bibs_players), parse_player_names(st.session_state.bibs_players)) or ["Select player"]
         edit_goal_scorer = st.selectbox("Player Who Scored", edit_goal_options, index=0 if st.session_state.edit_goal_scorer in edit_goal_options else 0, key="edit_goal_scorer")
         edit_assist_options = ["None"] + edit_goal_options
         edit_goal_assist = st.selectbox("Assisting Player (optional)", edit_assist_options, index=0 if st.session_state.edit_goal_assist in edit_assist_options else 0, key="edit_goal_assist")
-        edit_goal_replay = st.selectbox("Include Replay", ["None", "Home", "Away"], index=["None", "Home", "Away"].index(st.session_state.edit_goal_replay if st.session_state.edit_goal_replay in ["None", "Home", "Away"] else "None"), key="edit_goal_replay")
-        edit_goal_start_offset = st.number_input("Start Offset (seconds before)", value=st.session_state.edit_goal_start_offset, step=0.1, key="edit_goal_start_offset")
-        edit_goal_end_offset = st.number_input("End Offset (seconds after)", value=st.session_state.edit_goal_end_offset, step=0.1, key="edit_goal_end_offset")
+        # Use persisted default for this team's replay selection when editing
+        edit_default_for_team = st.session_state.get("default_replay_non_bibs" if edit_goal_team == "Non-Bibs" else "default_replay_bibs", "None")
+        edit_initial = st.session_state.get("edit_goal_replay", edit_default_for_team)
+        edit_options = ["None", "Home", "Away"]
+        edit_index = edit_options.index(edit_initial) if edit_initial in edit_options else 0
+        edit_goal_replay = st.selectbox("Include Replay", edit_options, index=edit_index, key="edit_goal_replay")
+        if st.button("Set as default for team (edit)", key=f"set_default_replay_edit_{edit_goal_team}"):
+            if edit_goal_team == "Non-Bibs":
+                st.session_state.default_replay_non_bibs = edit_goal_replay
+            else:
+                st.session_state.default_replay_bibs = edit_goal_replay
+            st.success(f"Set default replay for {edit_goal_team} to {edit_goal_replay}")
+        edit_goal_start_offset = st.number_input("Start Offset (seconds before)", step=0.1, key="edit_goal_start_offset")
+        edit_goal_end_offset = st.number_input("End Offset (seconds after)", step=0.1, key="edit_goal_end_offset")
         if st.button("Save changes", key="save_edit_goal"):
             updated = {
                 "time": edit_goal_time,
@@ -349,23 +422,23 @@ if st.session_state.edit_index is not None:
             st.session_state.highlights_list[st.session_state.edit_index] = updated
             clear_edit_state()
             st.success("Highlight updated")
-            st.experimental_rerun()
+            safe_rerun()
         if st.button("Cancel edit", key="cancel_edit_goal"):
             clear_edit_state()
-            st.experimental_rerun()
+            safe_rerun()
     else:
-        edit_event_time = st.number_input("Time (MM.SS format)", value=st.session_state.edit_time, step=0.01, key="edit_event_time")
+        edit_event_time = st.number_input("Time (MM.SS format)", step=0.01, key="edit_event_time")
         edit_event_type = st.selectbox("Event Type", EVENT_TYPES, index=EVENT_TYPES.index(st.session_state.edit_event_type) if st.session_state.edit_event_type in EVENT_TYPES else EVENT_TYPES.index("Custom Text"), key="edit_event_type")
         edit_custom_event_text = ""
         if edit_event_type == "Custom Text":
-            edit_custom_event_text = st.text_input("Event Description", value=st.session_state.edit_custom_event_text, key="edit_custom_event_text")
+            edit_custom_event_text = st.text_input("Event Description", key="edit_custom_event_text")
         elif edit_event_type == "Zoom and Slowmo":
-            edit_focal_x = st.slider("Focal X (0.0-1.0)", 0.0, 1.0, st.session_state.get("edit_focal_x", 0.5), key="edit_focal_x")
-            edit_focal_y = st.slider("Focal Y (0.0-1.0)", 0.0, 1.0, st.session_state.get("edit_focal_y", 0.5), key="edit_focal_y")
-            edit_zoom_factor = st.slider("Zoom Factor", 1.0, 5.0, st.session_state.get("edit_zoom_factor", 2.0), key="edit_zoom_factor")
-            edit_slowmo_factor = st.slider("Slowmo Factor", 0.1, 1.0, st.session_state.get("edit_slowmo_factor", 0.5), key="edit_slowmo_factor")
-        edit_event_start_offset = st.number_input("Start Offset (seconds before)", value=st.session_state.edit_event_start_offset, step=0.1, key="edit_event_start_offset")
-        edit_event_end_offset = st.number_input("End Offset (seconds after)", value=st.session_state.edit_event_end_offset, step=0.1, key="edit_event_end_offset")
+            edit_focal_x = st.slider("Focal X (0.0-1.0)", 0.0, 1.0, key="edit_focal_x")
+            edit_focal_y = st.slider("Focal Y (0.0-1.0)", 0.0, 1.0, key="edit_focal_y")
+            edit_zoom_factor = st.slider("Zoom Factor", 1.0, 5.0, key="edit_zoom_factor")
+            edit_slowmo_factor = st.slider("Slowmo Factor", 0.1, 1.0, key="edit_slowmo_factor")
+        edit_event_start_offset = st.number_input("Start Offset (seconds before)", step=0.1, key="edit_event_start_offset")
+        edit_event_end_offset = st.number_input("End Offset (seconds after)", step=0.1, key="edit_event_end_offset")
         if st.button("Save changes", key="save_edit_event"):
             text_value = edit_custom_event_text.strip() if edit_event_type == "Custom Text" else edit_event_type
             updated = {
@@ -379,10 +452,10 @@ if st.session_state.edit_index is not None:
             st.session_state.highlights_list[st.session_state.edit_index] = updated
             clear_edit_state()
             st.success("Event updated")
-            st.experimental_rerun()
+            safe_rerun()
         if st.button("Cancel edit", key="cancel_edit_event"):
             clear_edit_state()
-            st.experimental_rerun()
+            safe_rerun()
 
 st.divider()
 
@@ -392,28 +465,108 @@ bibs_names = parse_player_names(bibs_players)
 
 st.subheader("Timestamp helper")
 st.write("Pause the main video and enter the paused timestamp below, then copy it into the goal or event form.")
-current_timestamp = st.number_input("Paused timestamp (MM.SS)", value=st.session_state.current_timestamp, step=0.01, key="current_timestamp")
+current_timestamp = st.number_input("Paused timestamp (MM.SS)", key="current_timestamp")
 col1, col2 = st.columns(2)
 if col1.button("Copy to Goal Time", key="copy_to_goal_time"):
     st.session_state.goal_time = current_timestamp
-    st.experimental_rerun()
+    safe_rerun()
 if col2.button("Copy to Event Time", key="copy_to_event_time"):
     st.session_state.event_time = current_timestamp
-    st.experimental_rerun()
+    safe_rerun()
+
+
+def _make_data_uri_from_uploaded(uploaded, path_text=None):
+    """Return a data URI for the uploaded file or on-disk path if available."""
+    try:
+        if uploaded is not None:
+            data = uploaded.getvalue()
+        elif path_text:
+            p = resolve_input_path(path_text)
+            if p and Path(p).exists():
+                with open(p, "rb") as f:
+                    data = f.read()
+            else:
+                return None
+        else:
+            return None
+        mime = "video/mp4"
+        b64 = base64.b64encode(data).decode("utf-8")
+        return f"data:{mime};base64,{b64}"
+    except Exception:
+        return None
+
+
+st.write("**Capture timestamp from the player**")
+show_capture = st.button("Open video player to capture timestamp", key="open_capture_player")
+if show_capture:
+    # Build data URI for the video source (prefer uploaded file)
+    data_uri = _make_data_uri_from_uploaded(video_path, video_path_text)
+    if not data_uri:
+        st.error("No video available to preview. Upload a video or provide a valid path.")
+    else:
+        html = f"""
+        <html>
+        <body>
+        <video id='player' controls style='max-width:100%;height:auto'>
+          <source src='{data_uri}' type='video/mp4'>
+          Your browser does not support the video tag.
+        </video>
+        <div style='margin-top:8px'>
+          <button id='capture'>Capture current time</button>
+          <span style='margin-left:12px;color:#666;font-size:12px'>Pausing will also send the time automatically.</span>
+        </div>
+        <script>
+        const player = document.getElementById('player');
+        const btn = document.getElementById('capture');
+        function sendTime(t){{
+            // Post message to parent Streamlit app
+            window.parent.postMessage({{timestamp: t}}, '*');
+        }}
+        player.addEventListener('pause', function(){{ sendTime(player.currentTime); }});
+        btn.addEventListener('click', function(){{ sendTime(player.currentTime); }});
+        </script>
+        </body>
+        </html>
+        """
+
+        ret = components.html(html, height=420)
+        # When the component posts a message it may be returned as a dict
+        try:
+            if ret and isinstance(ret, dict) and 'timestamp' in ret:
+                t = float(ret['timestamp'])
+                minutes = int(t // 60)
+                seconds = int(t % 60)
+                mmss = minutes + (seconds / 100.0)
+                st.session_state.current_timestamp = round(mmss, 2)
+                st.success(f"Captured timestamp: {st.session_state.current_timestamp} (MM.SS)")
+                safe_rerun()
+        except Exception:
+            pass
 
 tab1, tab2 = st.tabs(["Add Goal", "Add Event/Text"])
 
 with tab1:
     st.subheader("Add Goal Highlight")
-    goal_time = st.number_input("Time (MM.SS format)", value=st.session_state.get("goal_time", 0.0), step=0.01, key="goal_time")
+    goal_time = st.number_input("Time (MM.SS format)", step=0.01, key="goal_time")
     goal_team = st.selectbox("Scoring Team", ["Non-Bibs", "Bibs"], index=0 if st.session_state.get("goal_team", "Non-Bibs") == "Non-Bibs" else 1, key="goal_team")
     goal_options = build_player_options(goal_team, non_bibs_names, bibs_names) or ["Select player"]
     goal_scorer = st.selectbox("Player Who Scored", goal_options, index=0 if st.session_state.get("goal_scorer") in goal_options else 0, key="goal_scorer")
     assist_options = ["None"] + goal_options
     goal_assist = st.selectbox("Assisting Player (optional)", assist_options, index=0 if st.session_state.get("goal_assist", "None") in assist_options else 0, key="goal_assist")
-    goal_replay = st.selectbox("Include Replay", ["None", "Home", "Away"], index=["None", "Home", "Away"].index(st.session_state.get("goal_replay", "None")), key="goal_replay")
-    goal_start_offset = st.number_input("Start Offset (seconds before)", value=st.session_state.get("goal_start_offset", 10.0), step=0.1, key="goal_start_offset")
-    goal_end_offset = st.number_input("End Offset (seconds after)", value=st.session_state.get("goal_end_offset", 5.0), step=0.1, key="goal_end_offset")
+    # Use persisted default for this team's replay selection
+    default_for_team = st.session_state.get("default_replay_non_bibs" if goal_team == "Non-Bibs" else "default_replay_bibs", "None")
+    initial_replay = st.session_state.get("goal_replay", default_for_team)
+    options = ["None", "Home", "Away"]
+    replay_index = options.index(initial_replay) if initial_replay in options else 0
+    goal_replay = st.selectbox("Include Replay", options, index=replay_index, key="goal_replay")
+    if st.button("Set as default for team", key=f"set_default_replay_{goal_team}"):
+        if goal_team == "Non-Bibs":
+            st.session_state.default_replay_non_bibs = goal_replay
+        else:
+            st.session_state.default_replay_bibs = goal_replay
+        st.success(f"Set default replay for {goal_team} to {goal_replay}")
+    goal_start_offset = st.number_input("Start Offset (seconds before)", step=0.1, key="goal_start_offset")
+    goal_end_offset = st.number_input("End Offset (seconds after)", step=0.1, key="goal_end_offset")
     
     if st.button("Add Goal", key="add_goal_btn"):
         if goal_time >= 0 and goal_scorer and goal_scorer != "Select player":
@@ -431,18 +584,18 @@ with tab1:
             
             st.session_state.highlights_list.append(highlight)
             st.success(f"✓ Added goal by {goal_scorer}")
-            st.rerun()
+            safe_rerun()
         else:
             st.error("Please select a scorer and enter a valid time")
 
 with tab2:
     st.subheader("Add Event/Text Annotation")
-    event_time = st.number_input("Time (MM.SS format)", value=st.session_state.get("event_time", 0.0), step=0.01, key="event_time")
+    event_time = st.number_input("Time (MM.SS format)", step=0.01, key="event_time")
     event_type = st.selectbox("Event Type", EVENT_TYPES, index=EVENT_TYPES.index(st.session_state.get("event_type", "Kick-off")), key="event_type")
     
     event_text = ""
     if event_type == "Custom Text":
-        event_text = st.text_input("Event Description", value=st.session_state.get("custom_event_text", ""), key="custom_event_text")
+        event_text = st.text_input("Event Description", key="custom_event_text")
     elif event_type == "Zoom and Slowmo":
         event_text = "Zoom and Slowmo"
         focal_x = st.slider("Focal X (0.0-1.0)", 0.0, 1.0, st.session_state.get("focal_x", 0.5), key="focal_x")
@@ -452,8 +605,8 @@ with tab2:
     else:
         event_text = event_type
     
-    event_start_offset = st.number_input("Start Offset (seconds before)", value=st.session_state.get("event_start_offset", 10.0), step=0.1, key="event_start_offset")
-    event_end_offset = st.number_input("End Offset (seconds after)", value=st.session_state.get("event_end_offset", 5.0), step=0.1, key="event_end_offset")
+    event_start_offset = st.number_input("Start Offset (seconds before)", step=0.1, key="event_start_offset")
+    event_end_offset = st.number_input("End Offset (seconds after)", step=0.1, key="event_end_offset")
     
     if st.button("Add Event", key="add_event_btn"):
         if event_time >= 0 and event_text.strip():
@@ -468,7 +621,7 @@ with tab2:
             
             st.session_state.highlights_list.append(highlight)
             st.success(f"✓ Added event: {event_text}")
-            st.rerun()
+            safe_rerun()
         else:
             st.error("Please fill in time and event description")
 
@@ -478,23 +631,23 @@ if st.session_state.highlights_list:
 
 # Optional: Cam2 and Replays
 st.header("Optional Settings")
-use_cam2 = st.checkbox("Use Cam2", value=st.session_state.get("use_cam2", False), key="use_cam2")
-cam2_time = st.number_input("Cam2 Time", 0.0, step=0.01, value=st.session_state.get("cam2_time", 0.0), key="cam2_time") if use_cam2 else st.session_state.get("cam2_time", 0.0)
-cam2_path_text = st.text_input("Cam2 Path", value=st.session_state.get("cam2_path_text", ""), key="cam2_path_text") if use_cam2 else st.session_state.get("cam2_path_text", "")
+use_cam2 = st.checkbox("Use Cam2", key="use_cam2")
+cam2_time = st.number_input("Cam2 Time", 0.0, step=0.01, key="cam2_time") if use_cam2 else st.session_state.get("cam2_time", 0.0)
+cam2_path_text = st.text_input("Cam2 Path", key="cam2_path_text") if use_cam2 else st.session_state.get("cam2_path_text", "")
 cam2_upload = st.file_uploader("Upload Cam2", type=["mp4", "avi", "mov", "mkv"], key="cam2_upload") if use_cam2 else None
-cam2_overlap = st.number_input("Cam2 Overlap PX", 100, value=st.session_state.get("cam2_overlap", 100), key="cam2_overlap") if use_cam2 else st.session_state.get("cam2_overlap", 100)
+cam2_overlap = st.number_input("Cam2 Overlap PX", 100, key="cam2_overlap") if use_cam2 else st.session_state.get("cam2_overlap", 100)
 
-replays_h_time = st.number_input("Replays Home Time", 0.0, step=0.01, value=st.session_state.get("replays_h_time", 0.0), key="replays_h_time")
-replays_h_path_text = st.text_input("Replays Home Path", value=st.session_state.get("replays_h_path_text", ""), key="replays_h_path_text")
+replays_h_time = st.number_input("Replays Home Time", 0.0, step=0.01, key="replays_h_time")
+replays_h_path_text = st.text_input("Replays Home Path", key="replays_h_path_text")
 replays_h_upload = st.file_uploader("Upload Home Replay", type=["mp4", "avi", "mov", "mkv"], key="replays_h_upload")
-replays_a_time = st.number_input("Replays Away Time", 0.0, step=0.01, value=st.session_state.get("replays_a_time", 0.0), key="replays_a_time")
-replays_a_path_text = st.text_input("Replays Away Path", value=st.session_state.get("replays_a_path_text", ""), key="replays_a_path_text")
+replays_a_time = st.number_input("Replays Away Time", 0.0, step=0.01, key="replays_a_time")
+replays_a_path_text = st.text_input("Replays Away Path", key="replays_a_path_text")
 replays_a_upload = st.file_uploader("Upload Away Replay", type=["mp4", "avi", "mov", "mkv"], key="replays_a_upload")
 
 if 'use_fix_scores' not in st.session_state:
     st.session_state.use_fix_scores = bool(st.session_state.get('fix_scores_list', []))
 
-use_fix_scores = st.checkbox("Use Fix Scores", value=st.session_state.use_fix_scores, key="use_fix_scores")
+use_fix_scores = st.checkbox("Use Fix Scores", key="use_fix_scores")
 if use_fix_scores:
     st.header("Fix Scores (Optional)")
 
@@ -509,11 +662,11 @@ if use_fix_scores:
             with col2:
                 if st.button("Delete", key=f"del_fix_{idx}"):
                     st.session_state.fix_scores_list.pop(idx)
-                    st.experimental_rerun()
+                    safe_rerun()
 
     st.divider()
     st.subheader("Add Score Fix")
-    fix_time = st.number_input("Time (MM.SS format)", value=st.session_state.get("fix_time", 0.0), step=0.01, key="fix_time")
+    fix_time = st.number_input("Time (MM.SS format)", step=0.01, key="fix_time")
     fix_team = st.selectbox("Team", ["Non-Bibs", "Bibs"], index=0 if st.session_state.get("fix_team", "Non-Bibs") == "Non-Bibs" else 1, key="fix_team")
     fix_options = build_player_options(fix_team, non_bibs_names, bibs_names) or ["Select player"]
     fix_scorer = st.selectbox("Player Who Scored", fix_options, index=0 if st.session_state.get("fix_scorer") in fix_options else 0, key="fix_scorer")
@@ -532,14 +685,14 @@ if use_fix_scores:
             
             st.session_state.fix_scores_list.append(fix_score)
             st.success(f"✓ Added fix score for {fix_scorer}")
-            st.rerun()
+            safe_rerun()
         else:
             st.error("Please select a scorer and enter a valid time")
 
 
 # Final Score
-final_score_n = st.number_input("Final Score Non-Bibs", 0, value=st.session_state.get("final_score_n", 0), key="final_score_n")
-final_score_b = st.number_input("Final Score Bibs", 0, value=st.session_state.get("final_score_b", 0), key="final_score_b")
+final_score_n = st.number_input("Final Score Non-Bibs", 0, key="final_score_n")
+final_score_b = st.number_input("Final Score Bibs", 0, key="final_score_b")
 
 status_container = st.empty()
 progress_bar = st.progress(0)
@@ -717,6 +870,27 @@ if st.button("Generate and Preview Highlight Video"):
             st.success(f"✓ Video saved to: {os.path.abspath(output_path)} ({time_str})")
             st.session_state.last_video_path = output_path
 
+            # Auto-generate thumbnail for the newly created video (use random time if none provided)
+            try:
+                forest_logo_auto = str(RANDOM_FOREST_LOGO)
+                auto_thumb = f"thumbnail_game_{game_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                create_custom_thumbnail(
+                    output_path,
+                    forest_logo_auto,
+                    bibs_logo_path,
+                    non_bibs_logo_path,
+                    final_score_b,
+                    final_score_n,
+                    output_path=auto_thumb,
+                    frame_time=None,
+                )
+                st.image(auto_thumb, caption="Auto-generated Thumbnail")
+                st.success(f"✓ Auto-thumbnail saved to: {os.path.abspath(auto_thumb)}")
+                st.session_state.last_thumbnail_path = auto_thumb
+            except Exception:
+                # Non-fatal: don't block video success if thumbnail generation fails
+                pass
+
         except Exception as e:
             st.error(f"Error: {str(e)}")
 
@@ -730,19 +904,27 @@ if st.button("Generate Thumbnail", key="generate_thumbnail"):
             st.error("No video available for thumbnail generation. Please generate a video first or provide a video path.")
         else:
             # Get logos
-            non_bibs_logo_thumb = non_bibs_logo.name if non_bibs_logo else (non_bibs_logo_text or "logos/Non-Bibs Logo.png")
-            bibs_logo_thumb = bibs_logo.name if bibs_logo else (bibs_logo_text or "logos/Bibs Logo.png")
-            
+            non_bibs_logo_thumb = non_bibs_logo.name if non_bibs_logo else (non_bibs_logo_text or str(DEFAULT_NON_BIBS_LOGO))
+            bibs_logo_thumb = bibs_logo.name if bibs_logo else (bibs_logo_text or str(DEFAULT_BIBS_LOGO))
+
+            # Optional timestamp input for thumbnail (seconds)
+            thumb_time = st.number_input("Thumbnail timestamp (seconds, optional)", value=0.0, step=0.01, key="thumbnail_time")
+            frame_time = thumb_time if thumb_time and thumb_time > 0 else None
+
+            # Resolve forest logo (use Random Forest logo instead of team logo at top)
+            forest_logo = str(RANDOM_FOREST_LOGO)
+
             # Generate thumbnail
             thumbnail_path = f"thumbnail_game_{game_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
             create_custom_thumbnail(
                 video_for_thumb,
-                bibs_logo_thumb,  # forest_logo_path (Bibs team)
+                forest_logo,
                 bibs_logo_thumb,
                 non_bibs_logo_thumb,
-                final_score_b,  # bib_score
-                final_score_n,  # nonbib_score
-                output_path=thumbnail_path
+                final_score_b,
+                final_score_n,
+                output_path=thumbnail_path,
+                frame_time=frame_time,
             )
             st.image(thumbnail_path, caption="Generated Thumbnail")
             st.success(f"✓ Thumbnail saved to: {os.path.abspath(thumbnail_path)}")
