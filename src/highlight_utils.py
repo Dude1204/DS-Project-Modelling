@@ -557,7 +557,7 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
         vid2 = video is video2
 
         adj = 0
-        if insta and (h["time"] > 28.57) and not once:
+        if insta and (h["time"] > 29.00) and not once and ("patch" not in h):
             adj = 15
             once = True
         time_diff -= h.get("time_adjustment", adj)

@@ -559,6 +559,8 @@ with tab1:
     options = ["None", "Home", "Away"]
     replay_index = options.index(initial_replay) if initial_replay in options else 0
     goal_replay = st.selectbox("Include Replay", options, index=replay_index, key="goal_replay")
+    patch_index = options.index(st.session_state.get("patch", "None")) if st.session_state.get("patch") in options else 0
+    goal_patch = st.selectbox("Patch", options, index=patch_index, key="patch")
     if st.button("Set as default for team", key=f"set_default_replay_{goal_team}"):
         if goal_team == "Non-Bibs":
             st.session_state.default_replay_non_bibs = goal_replay
@@ -581,7 +583,9 @@ with tab1:
                 highlight["assist"] = goal_assist
             if goal_replay != "None":
                 highlight["replay"] = "h" if goal_replay == "Home" else "a"
-            
+            if goal_patch != "None":
+                highlight["patch"] = "h" if goal_patch == "Home" else "a"
+
             st.session_state.highlights_list.append(highlight)
             st.success(f"✓ Added goal by {goal_scorer}")
             safe_rerun()
