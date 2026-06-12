@@ -596,6 +596,8 @@ with tab2:
     st.subheader("Add Event/Text Annotation")
     event_time = st.number_input("Time (MM.SS format)", step=0.01, key="event_time")
     event_type = st.selectbox("Event Type", EVENT_TYPES, index=EVENT_TYPES.index(st.session_state.get("event_type", "Kick-off")), key="event_type")
+    patch_index2 = options.index(st.session_state.get("patch2", "None")) if st.session_state.get("patch2") in options else 0
+    clip_patch = st.selectbox("Patch", options, index=patch_index2, key="patch2")
     
     event_text = ""
     if event_type == "Custom Text":
@@ -622,6 +624,8 @@ with tab2:
             }
             if event_type == "Zoom and Slowmo":
                 highlight["slow"] = [[focal_x, focal_y], slowmo_factor, zoom_factor]
+            if clip_patch != "None":
+                highlight["patch"] = "h" if clip_patch == "Home" else "a"
             
             st.session_state.highlights_list.append(highlight)
             st.success(f"✓ Added event: {event_text}")
