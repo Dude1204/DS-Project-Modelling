@@ -698,9 +698,50 @@ if use_fix_scores:
             st.error("Please select a scorer and enter a valid time")
 
 
+def calculate_final_score_from_highlights(highlights, fix_scores):
+    score_n = 0
+    score_b = 0
+    for h in highlights or []:
+        if h.get("team") == "n":
+            score_n += 1
+        elif h.get("team") == "b":
+            score_b += 1
+    for fs in fix_scores or []:
+        if fs.get("team") == "n":
+            score_n += 1
+        elif fs.get("team") == "b":
+            score_b += 1
+    return score_n, score_b
+
+
 # Final Score
-final_score_n = st.number_input("Final Score Non-Bibs", 0, key="final_score_n")
-final_score_b = st.number_input("Final Score Bibs", 0, key="final_score_b")
+calculated_score_n, calculated_score_b = calculate_final_score_from_highlights(
+    st.session_state.get("highlights_list", []),
+    st.session_state.get("fix_scores_list", []),
+)
+if not (st.session_state.get("final_score_n", 0) or st.session_state.get("final_score_b", 0)) and (
+    calculated_score_n or calculated_score_b
+):
+    st.session_state.final_score_n = calculated_score_n
+    st.session_state.final_score_b = calculated_score_b
+
+final_score_n = st.number_input(
+    "Final Score Non-Bibs",
+    min_value=0,
+    value=st.session_state.get("final_score_n", 0),
+    key="final_score_n",
+)
+final_score_b = st.number_input(
+    "Final Score Bibs",
+    min_value=0,
+    value=st.session_state.get("final_score_b", 0),
+    key="final_score_b",
+)
+if calculated_score_n or calculated_score_b:
+    st.caption(
+        f"Auto-detected score from highlights: Non-Bibs {calculated_score_n} - Bibs {calculated_score_b}. "
+        "Leave the manual values as-is to override."
+    )
 
 status_container = st.empty()
 progress_bar = st.progress(0)
@@ -904,6 +945,15 @@ if st.button("Generate and Preview Highlight Video"):
 
 # Thumbnail Generation
 st.header("Generate Thumbnail")
+thumbnail_time = st.number_input(
+    "Thumbnail timestamp (seconds, optional)",
+    min_value=0.0,
+    value=st.session_state.get("thumbnail_time", 0.0),
+    step=0.01,
+    key="thumbnail_time",
+)
+st.caption("If no thumbnail timestamp is provided, a random frame between 30% and 70% of the video duration will be selected.")
+
 if st.button("Generate Thumbnail", key="generate_thumbnail"):
     try:
         # Use the last generated video or uploaded video
@@ -915,22 +965,27 @@ if st.button("Generate Thumbnail", key="generate_thumbnail"):
             non_bibs_logo_thumb = non_bibs_logo.name if non_bibs_logo else (non_bibs_logo_text or str(DEFAULT_NON_BIBS_LOGO))
             bibs_logo_thumb = bibs_logo.name if bibs_logo else (bibs_logo_text or str(DEFAULT_BIBS_LOGO))
 
-            # Optional timestamp input for thumbnail (seconds)
-            thumb_time = st.number_input("Thumbnail timestamp (seconds, optional)", value=0.0, step=0.01, key="thumbnail_time")
-            frame_time = thumb_time if thumb_time and thumb_time > 0 else None
+            frame_time = thumbnail_time if thumbnail_time and thumbnail_time > 0 else None
 
             # Resolve forest logo (use Random Forest logo instead of team logo at top)
             forest_logo = str(RANDOM_FOREST_LOGO)
 
             # Generate thumbnail
             thumbnail_path = f"thumbnail_game_{game_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            final_score_n_auto, final_score_b_auto = calculate_final_score_from_highlights(
+                st.session_state.get("highlights_list", []),
+                st.session_state.get("fix_scores_list", []),
+            )
+            use_score_n = final_score_n if (final_score_n or final_score_b) else final_score_n_auto
+            use_score_b = final_score_b if (final_score_n or final_score_b) else final_score_b_auto
+
             create_custom_thumbnail(
                 video_for_thumb,
                 forest_logo,
                 bibs_logo_thumb,
                 non_bibs_logo_thumb,
-                final_score_b,
-                final_score_n,
+                use_score_b,
+                use_score_n,
                 output_path=thumbnail_path,
                 frame_time=frame_time,
             )

@@ -514,8 +514,9 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
     """
     Compose the highlight clip without writing it to disk.
     """
-    if fix_scores is None:
+    if fix_scores is None or fix_scores == []:
         fix_scores = []
+        final_score = None
 
     video0 = VideoFileClip(path)
     TARGET_SIZE = video0.size
