@@ -695,7 +695,7 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
 
             time = mm_ss_to_seconds(h["time"]) - time_diff_ha
 
-            clip = video_ha.subclip(time - 5, time + 2)  # Replay is shorter and starts a bit later
+            clip = video_ha.subclip(time - 5, time + 3)  # Replay is shorter and starts a bit later
 
             silent_audio = AudioClip(lambda t: 0, duration=clip.duration, fps=44100)
             clip = clip.set_audio(silent_audio)
