@@ -1,0 +1,39 @@
+{
+  "ceremony_name": "Season 2026 Puskas Award",
+  "date_created": "2026-07-07",
+  "contenders": [
+    {
+      "rank": 1,
+      "player_name": "John Smith",
+      "team_name": "Bibs FC",
+      "video_path": "Game 1.mp4",
+      "start_time": 45.5,
+      "duration": 5.0,
+      "description": "Amazing long-range strike from 30 yards"
+    },
+    {
+      "rank": 2,
+      "player_name": "Alex Johnson",
+      "team_name": "Non-Bibs",
+      "video_path": "Game 2.mp4",
+      "start_time": 120.0,
+      "duration": 5.0,
+      "description": "Bicycle kick from tight angle"
+    },
+    {
+      "rank": 3,
+      "player_name": "Mike Chen",
+      "team_name": "Bibs FC",
+      "video_path": "Game 1.mp4",
+      "start_time": 180.5,
+      "duration": 5.0,
+      "description": "Incredible free kick top corner"
+    }
+  ],
+  "winner_index": 0,
+  "settings": {
+    "randomize_order": false,
+    "include_countdown": true,
+    "fade_between_clips": true
+  }
+}

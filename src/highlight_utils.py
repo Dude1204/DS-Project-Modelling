@@ -797,3 +797,348 @@ def create_custom_thumbnail(video_path, forest_logo_path, bib_logo, nonbib_logo,
     # Save
     canvas.convert("RGB").save(output_path, quality=95)
     return output_path
+
+
+# ============================================================================
+# PUSKAS AWARD CEREMONY FUNCTIONS
+# ============================================================================
+
+def create_ceremony_title_slide(duration=3):
+    """
+    Create a dramatic title slide for the Puskas Award Ceremony.
+    """
+    width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
+    
+    # Black background with gradient effect
+    bg = ColorClip(size=(width, height), color=BLACK).set_duration(duration)
+    
+    # Main title
+    title = TextClip(
+        "PUSKAS AWARD",
+        fontsize=100,
+        color='gold',
+        font=DEFAULT_FONT_BOLD,
+        method="label"
+    ).set_duration(duration).set_position(("center", height//3))
+    
+    # Subtitle
+    subtitle = TextClip(
+        "Best Goal of the Season",
+        fontsize=50,
+        color='white',
+        font=DEFAULT_FONT,
+        method="label"
+    ).set_duration(duration).set_position(("center", height//2 + 50))
+    
+    # Add fade in/out effects
+    title = title.crossfadeout(0.5).crossfadein(0.5)
+    subtitle = subtitle.crossfadeout(0.5).crossfadein(0.5)
+    
+    return CompositeVideoClip([bg, title, subtitle], size=(width, height))
+
+
+def create_contender_slide(player_name, team_name, goal_clip, rank, duration=4):
+    """
+    Create a contender presentation slide with goal video.
+    
+    Args:
+        player_name: Name of the goal scorer
+        team_name: Team name
+        goal_clip: VideoFileClip of the goal
+        rank: Contender number (1, 2, 3, etc)
+        duration: Slide duration in seconds
+    """
+    width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
+    
+    # Resize goal clip to fit top portion
+    video_height = int(height * 0.65)
+    goal_video = goal_clip.resize(width=width).crop(
+        x1=0, y1=0, x2=width, y2=video_height
+    ).set_duration(duration)
+    
+    # Black bar for player info
+    info_height = height - video_height
+    info_bar = ColorClip(size=(width, info_height), color=BLACK).set_duration(duration)
+    
+    # Rank number (large)
+    rank_text = TextClip(
+        f"#{rank}",
+        fontsize=80,
+        color='gold',
+        font=DEFAULT_FONT_BOLD,
+        method="label"
+    ).set_duration(duration).set_position((50, video_height + 20))
+    
+    # Player name
+    player_text = TextClip(
+        player_name,
+        fontsize=60,
+        color='white',
+        font=DEFAULT_FONT_BOLD,
+        method="label"
+    ).set_duration(duration).set_position((250, video_height + 30))
+    
+    # Team name
+    team_text = TextClip(
+        team_name,
+        fontsize=40,
+        color='lightgray',
+        font=DEFAULT_FONT,
+        method="label"
+    ).set_duration(duration).set_position((250, video_height + 100))
+    
+    # Combine all layers
+    slide = CompositeVideoClip(
+        [goal_video, info_bar, rank_text, player_text, team_text],
+        size=(width, height)
+    )
+    
+    return slide
+
+
+def create_countdown_timer(start_num=5, duration=5.5):
+    """
+    Create a dramatic countdown timer (5, 4, 3, 2, 1, GO!).
+    """
+    width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
+    
+    # Black background
+    bg = ColorClip(size=(width, height), color=BLACK).set_duration(duration)
+    
+    clips_to_combine = [bg]
+    
+    # Countdown numbers
+    for i in range(start_num, 0, -1):
+        time_in = (start_num - i) * 1.0
+        time_out = time_in + 0.9
+        
+        number_text = TextClip(
+            str(i),
+            fontsize=200,
+            color='gold',
+            font=DEFAULT_FONT_BOLD,
+            method="label"
+        ).set_duration(duration).set_position(("center", "center")).set_start(time_in).set_end(time_out)
+        
+        clips_to_combine.append(number_text)
+    
+    # GO! text
+    go_text = TextClip(
+        "GO!",
+        fontsize=150,
+        color='white',
+        font=DEFAULT_FONT_BOLD,
+        method="label"
+    ).set_duration(duration).set_position(("center", "center")).set_start(5.0).set_end(duration)
+    
+    clips_to_combine.append(go_text)
+    
+    return CompositeVideoClip(clips_to_combine, size=(width, height))
+
+
+def create_winner_reveal(winner_name, team_name, winner_clip, duration=8):
+    """
+    Create a dramatic winner reveal with celebration effects.
+    
+    Args:
+        winner_name: Name of the goal scorer
+        team_name: Team name
+        winner_clip: VideoFileClip of the winning goal
+        duration: Total duration of reveal sequence
+    """
+    width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
+    
+    # Main video (full screen for first part)
+    video_height = int(height * 0.7)
+    winner_video = winner_clip.resize(width=width).crop(
+        x1=0, y1=0, x2=width, y2=video_height
+    ).set_duration(duration)
+    
+    # Black background for lower section
+    lower_bg = ColorClip(size=(width, height - video_height), color=BLACK).set_duration(duration)
+    lower_bg = lower_bg.set_position((0, video_height))
+    
+    # Trophy emoji/text
+    trophy_text = TextClip(
+        "🏆",
+        fontsize=120,
+        color='gold',
+        font=DEFAULT_FONT_BOLD,
+        method="label"
+    ).set_duration(duration).set_position(("center", video_height + 20)).set_start(0.5)
+    
+    # Winner name with fade in
+    winner_text = TextClip(
+        f"{winner_name}",
+        fontsize=80,
+        color='gold',
+        font=DEFAULT_FONT_BOLD,
+        method="label"
+    ).set_duration(duration).set_position(("center", video_height + 130)).crossfadein(0.5)
+    
+    # Team name
+    team_text = TextClip(
+        team_name,
+        fontsize=50,
+        color='white',
+        font=DEFAULT_FONT,
+        method="label"
+    ).set_duration(duration).set_position(("center", video_height + 230)).crossfadein(0.5)
+    
+    # Congratulations text
+    congrats_text = TextClip(
+        "PUSKAS AWARD WINNER",
+        fontsize=60,
+        color='white',
+        font=DEFAULT_FONT_BOLD,
+        method="label"
+    ).set_duration(duration).set_position(("center", height - 80)).set_start(3).crossfadein(0.5)
+    
+    return CompositeVideoClip(
+        [winner_video, lower_bg, trophy_text, winner_text, team_text, congrats_text],
+        size=(width, height)
+    )
+
+
+def create_puskas_ceremony(contenders_list, winner_index, output_path):
+    """
+    Create a complete Puskas Award Ceremony video.
+    
+    Args:
+        contenders_list: List of dicts with structure:
+            {
+                "player_name": str,
+                "team_name": str,
+                "video_path": str,
+                "start_time": float (in seconds),
+                "duration": float (in seconds)
+            }
+        winner_index: Index of the winner in contenders_list (0-based)
+        output_path: Output file path for the ceremony video
+    """
+    clips = []
+    open_videos = []  # Keep track of open videos to close them later
+    
+    # Opening title slide
+    print("Creating title slide...")
+    title_slide = create_ceremony_title_slide(duration=3)
+    clips.append(title_slide)
+    
+    # Add contender slides
+    print("Creating contender slides...")
+    for rank, contender in enumerate(contenders_list, 1):
+        try:
+            # Load goal clip
+            goal_video = VideoFileClip(contender["video_path"])
+            open_videos.append(goal_video)  # Track for cleanup
+            
+            video_duration = goal_video.duration
+            
+            # Get timing parameters
+            start_time = contender.get("start_time", 0)
+            clip_duration = contender.get("duration", 5)
+            
+            # Validate timing
+            if start_time >= video_duration:
+                print(f"⚠️  Warning: Start time {start_time}s is beyond video duration {video_duration:.1f}s for {contender['player_name']}")
+                start_time = max(0, video_duration - clip_duration)
+            
+            # Ensure we don't go past the end
+            end_time = min(start_time + clip_duration, video_duration)
+            actual_duration = end_time - start_time
+            
+            if actual_duration < 0.5:
+                print(f"⚠️  Warning: Adjusted duration to {actual_duration:.1f}s for {contender['player_name']}")
+            
+            # Extract the specific goal segment
+            goal_segment = goal_video.subclip(start_time, end_time)
+            
+            # Create contender slide
+            contender_slide = create_contender_slide(
+                player_name=contender["player_name"],
+                team_name=contender["team_name"],
+                goal_clip=goal_segment,
+                rank=rank,
+                duration=4
+            )
+            clips.append(contender_slide)
+            
+            # Add pause between contenders
+            pause = ColorClip(size=(DEFAULT_WIDTH, DEFAULT_HEIGHT), color=BLACK).set_duration(0.5)
+            clips.append(pause)
+            
+        except Exception as e:
+            print(f"❌ Error processing contender {rank} ({contender['player_name']}): {e}")
+            print(f"   Video path: {contender['video_path']}")
+            print(f"   Start time: {contender.get('start_time', 0)}s, Duration: {contender.get('duration', 5)}s")
+            continue
+    
+    # Countdown to winner reveal
+    print("Creating countdown...")
+    countdown = create_countdown_timer(start_num=5, duration=5.5)
+    clips.append(countdown)
+    
+    # Winner reveal
+    print("Creating winner reveal...")
+    winner_info = contenders_list[winner_index]
+    try:
+        winner_video = VideoFileClip(winner_info["video_path"])
+        open_videos.append(winner_video)  # Track for cleanup
+        
+        video_duration = winner_video.duration
+        
+        # Get timing parameters
+        start_time = winner_info.get("start_time", 0)
+        clip_duration = winner_info.get("duration", 5)
+        
+        # Validate timing
+        if start_time >= video_duration:
+            print(f"⚠️  Warning: Start time {start_time}s is beyond video duration {video_duration:.1f}s for winner")
+            start_time = max(0, video_duration - clip_duration)
+        
+        # Ensure we don't go past the end
+        end_time = min(start_time + clip_duration, video_duration)
+        winner_segment = winner_video.subclip(start_time, end_time)
+        
+        winner_reveal_clip = create_winner_reveal(
+            winner_name=winner_info["player_name"],
+            team_name=winner_info["team_name"],
+            winner_clip=winner_segment,
+            duration=8
+        )
+        clips.append(winner_reveal_clip)
+        
+    except Exception as e:
+        print(f"❌ Error creating winner reveal: {e}")
+        print(f"   Video path: {winner_info['video_path']}")
+        print(f"   Start time: {winner_info.get('start_time', 0)}s, Duration: {winner_info.get('duration', 5)}s")
+    
+    # Concatenate all clips
+    print("Concatenating all clips...")
+    final_video = concatenate_videoclips(clips)
+    
+    # Write to file (video only, no audio)
+    print(f"Writing ceremony video to {output_path}...")
+    try:
+        final_video.write_videofile(
+            output_path,
+            fps=DEFAULT_FPS,
+            codec='libx264',
+            audio=False,
+            verbose=False,
+            logger=None
+        )
+        print("✅ Ceremony video created successfully!")
+    except Exception as e:
+        print(f"❌ Error writing video: {e}")
+        raise
+    finally:
+        # Clean up all open video files
+        print("Cleaning up resources...")
+        for vid in open_videos:
+            try:
+                vid.close()
+            except:
+                pass
+    
+    return output_path
