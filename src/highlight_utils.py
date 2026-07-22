@@ -558,7 +558,7 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
         vid2 = video is video2
 
         adj = 0
-        if insta and (h["time"] > 29.00) and not once and ("patch" not in h):
+        if insta and (h["time"] > 29) and not once and ("patch" not in h):
             adj = 15
             once = True
         time_diff -= h.get("time_adjustment", adj)
@@ -649,6 +649,12 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
             focal_x, focal_y = h["slow"][0]
             slowmo = h["slow"][1]
             zoom = h["slow"][2]
+            if "patch" in h:
+                time_diff_ha = time_diff_h if h["patch"] == "h" else time_diff_a
+                video_ha = video_h if h["patch"] == "h" else video_a
+                start -= time_diff_ha
+                end -= time_diff_ha
+                clip = video_ha.subclip(start, end)  # Replay is shorter and starts a bit later
             clip = zoom_and_slowmo(clip, focal_x, focal_y, zoom_factor=zoom, slowmo_factor=slowmo)
             silent_audio = AudioClip(lambda t: 0, duration=clip.duration, fps=44100)
             clip = clip.set_audio(silent_audio)
