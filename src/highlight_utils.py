@@ -64,6 +64,7 @@ ZOOM_RATIO = 0.5
 SLOWMO_FACTOR_DEFAULT = 0.5
 ZOOM_FACTOR_DEFAULT = 2.0
 OVERLAP_PX_DEFAULT = 100
+MAIN_CAMERA_AUDIO_OFFSET_SECONDS = -0.55
 
 
 def mm_ss_to_seconds(time_float, specific=True):
@@ -519,6 +520,8 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
         final_score = None
 
     video0 = VideoFileClip(path)
+    if getattr(video0, "audio", None) is not None:
+        video0 = video0.set_audio(video0.audio.set_start(MAIN_CAMERA_AUDIO_OFFSET_SECONDS))
     TARGET_SIZE = video0.size
     video2 = None
     time_diff = 0
@@ -558,7 +561,7 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
         vid2 = video is video2
 
         adj = 0
-        if insta and (h["time"] > 29) and not once and ("patch" not in h):
+        if insta and (h["time"] > 29.00) and not once and ("patch" not in h):
             adj = 15
             once = True
         time_diff -= h.get("time_adjustment", adj)
