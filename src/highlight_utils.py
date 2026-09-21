@@ -554,6 +554,7 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
     scoreboard_elements = create_scoreboard(team_dict["n"], "0", team_dict["b"], "0", logo1, logo2, duration=15)
     scored = False
     once = False
+    twice = False
 
     for i, h in enumerate(highlights):
         angle = h.get("angle", 0)
@@ -564,7 +565,12 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
         if insta and (h["time"] > 29.00) and not once and ("patch" not in h):
             adj = 15
             once = True
+        # if not twice and (h["time"] > 40.00):
+        #     twice = True
+        #     adj = 40
         time_diff -= h.get("time_adjustment", adj)
+
+
         if replays:
             time_diff_h -= h.get("time_adjustment", adj)
             time_diff_a -= h.get("time_adjustment", adj)
