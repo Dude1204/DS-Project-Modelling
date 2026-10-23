@@ -534,12 +534,24 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
         time_diff = mm_ss_to_seconds(highlights[0].get("time", highlights[0].get("start"))) - mm_ss_to_seconds(cam2["time"])
         video2 = VideoFileClip(cam2["path"])
 
+    video_h = video_a = None
+    time_diff_h = time_diff_a = None
     if replays:
         ko = mm_ss_to_seconds(highlights[0].get("time", highlights[0].get("start")))
-        time_diff_h = ko - mm_ss_to_seconds(replays["time_h"])
-        time_diff_a = ko - mm_ss_to_seconds(replays["time_a"])
-        video_h = VideoFileClip(replays["path_h"])
-        video_a = VideoFileClip(replays["path_a"])
+        if replays.get("path_h"):
+            time_diff_h = ko - mm_ss_to_seconds(replays["time_h"])
+            video_h = VideoFileClip(replays["path_h"])
+        if replays.get("path_a"):
+            time_diff_a = ko - mm_ss_to_seconds(replays["time_a"])
+            video_a = VideoFileClip(replays["path_a"])
+
+    for highlight in highlights:
+        replay_camera = highlight.get("replay") or highlight.get("second_angle_replay")
+        patch_camera = highlight.get("patch")
+        if replay_camera == "h" and video_h is None or patch_camera == "h" and video_h is None:
+            raise ValueError("A Home replay video is required for the selected replay or patch.")
+        if replay_camera == "a" and video_a is None or patch_camera == "a" and video_a is None:
+            raise ValueError("An Away replay video is required for the selected replay or patch.")
 
     team_intro = create_team_intro(non_bibs_team, bibs_team, game)
     team_dict = {"n": non_bibs_team['name'], "b": bibs_team['name']}
@@ -571,12 +583,14 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
         time_diff -= h.get("time_adjustment", adj)
 
 
-        if replays:
+        if time_diff_h is not None:
             time_diff_h -= h.get("time_adjustment", adj)
+        if time_diff_a is not None:
             time_diff_a -= h.get("time_adjustment", adj)
 
         start = mm_ss_to_seconds(h.get("start", h["time"])) - (h.get("start_offset", 10) if "start" not in h else 0) - extend_clips
         end = mm_ss_to_seconds(h.get("end", h["time"])) + (h.get("end_offset", 5) if "end" not in h else 0) + extend_clips
+        main_start, main_end = start, end
         start -= time_diff if vid2 else 0
         end -= time_diff if vid2 else 0
         extra_time = max(0, (end - start - 15) if "end" in h and "time" in h else 0)
@@ -678,7 +692,7 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
             start -= time_diff_ha
             end -= time_diff_ha
 
-            clip = video_ha.subclip(start, end)  # Replay is shorter and starts a bit later
+            clip = video_ha.subclip(start, end).without_audio()  # Replay is shorter and starts a bit later
 
             composite = CompositeVideoClip([clip, txt] + scoreboard_elements + [timer_txt])
 
@@ -703,6 +717,17 @@ def compose_highlight_clip(path, highlights, non_bibs_team, bibs_team, extend_cl
 
         composite = composite.resize(newsize=TARGET_SIZE)
         highlight_clips.append(composite)
+
+        if h.get("second_angle_replay"):
+            angle_camera = h["second_angle_replay"]
+            replay_video = video_h if angle_camera == "h" else video_a
+            replay_time_diff = time_diff_h if angle_camera == "h" else time_diff_a
+            replay_time = mm_ss_to_seconds(h["time"]) - replay_time_diff
+            replay_clip = replay_video.subclip(replay_time - 5, replay_time + 3)
+            replay_clip = replay_clip.set_audio(AudioClip(lambda t: 0, duration=replay_clip.duration, fps=44100))
+            replay_text = overlay_text("2nd Angle", replay_clip.duration, 0)
+            replay_composite = CompositeVideoClip([replay_clip, replay_text]).resize(newsize=TARGET_SIZE)
+            highlight_clips.append(replay_composite)
 
         if ("replay" in h) and replays:
             time_diff_ha = time_diff_h if h["replay"] == "h" else time_diff_a

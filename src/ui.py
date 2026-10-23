@@ -7,7 +7,7 @@ import streamlit as st
 import json
 import base64
 import streamlit.components.v1 as components
-from highlight_utils import create_highlight_clip, compose_highlight_clip, create_custom_thumbnail
+from highlight_utils import create_highlight_clip, compose_highlight_clip, create_custom_thumbnail, mm_ss_to_seconds
 
 APP_DIR = Path(__file__).resolve().parent
 
@@ -340,6 +340,8 @@ def set_edit_state(idx):
         st.session_state.edit_custom_event_text = event.get("text", "") if event.get("text") not in EVENT_TYPES else ""
         st.session_state.edit_event_start_offset = event.get("start_offset", 10.0)
         st.session_state.edit_event_end_offset = event.get("end_offset", 5.0)
+        st.session_state.edit_event_add_second_angle = bool(event.get("second_angle_replay"))
+        st.session_state.edit_event_second_angle_camera = "Home" if event.get("second_angle_replay") == "h" else "Away"
         if event.get("slow"):
             st.session_state.edit_event_type = "Zoom and Slowmo"
             st.session_state.edit_focal_x = event["slow"][0][0]
@@ -353,6 +355,7 @@ def clear_edit_state():
         "edit_index", "edit_mode", "edit_time", "edit_goal_team", "edit_goal_scorer",
         "edit_goal_assist", "edit_goal_replay", "edit_goal_start_offset", "edit_goal_end_offset",
         "edit_event_type", "edit_custom_event_text", "edit_event_start_offset", "edit_event_end_offset",
+        "edit_event_add_second_angle", "edit_event_second_angle_camera",
         "edit_focal_x", "edit_focal_y", "edit_zoom_factor", "edit_slowmo_factor",
     ]:
         st.session_state.pop(key, None)
@@ -439,6 +442,9 @@ if st.session_state.edit_index is not None:
             edit_slowmo_factor = st.slider("Slowmo Factor", 0.1, 1.0, key="edit_slowmo_factor")
         edit_event_start_offset = st.number_input("Start Offset (seconds before)", step=0.1, key="edit_event_start_offset")
         edit_event_end_offset = st.number_input("End Offset (seconds after)", step=0.1, key="edit_event_end_offset")
+        edit_event_add_second_angle = st.checkbox("Add 2nd angle replay", key="edit_event_add_second_angle")
+        if edit_event_add_second_angle:
+            edit_event_second_angle_camera = st.selectbox("2nd angle camera", ["Home", "Away"], key="edit_event_second_angle_camera")
         if st.button("Save changes", key="save_edit_event"):
             text_value = edit_custom_event_text.strip() if edit_event_type == "Custom Text" else edit_event_type
             updated = {
@@ -449,6 +455,8 @@ if st.session_state.edit_index is not None:
             }
             if edit_event_type == "Zoom and Slowmo":
                 updated["slow"] = [[edit_focal_x, edit_focal_y], edit_slowmo_factor, edit_zoom_factor]
+            if edit_event_add_second_angle:
+                updated["second_angle_replay"] = "h" if edit_event_second_angle_camera == "Home" else "a"
             st.session_state.highlights_list[st.session_state.edit_index] = updated
             clear_edit_state()
             st.success("Event updated")
@@ -613,6 +621,9 @@ with tab2:
     
     event_start_offset = st.number_input("Start Offset (seconds before)", step=0.1, key="event_start_offset")
     event_end_offset = st.number_input("End Offset (seconds after)", step=0.1, key="event_end_offset")
+    event_add_second_angle = st.checkbox("Add 2nd angle replay", key="event_add_second_angle")
+    if event_add_second_angle:
+        event_second_angle_camera = st.selectbox("2nd angle camera", ["Home", "Away"], key="event_second_angle_camera")
     
     if st.button("Add Event", key="add_event_btn"):
         if event_time >= 0 and event_text.strip():
@@ -626,6 +637,8 @@ with tab2:
                 highlight["slow"] = [[focal_x, focal_y], slowmo_factor, zoom_factor]
             if clip_patch != "None":
                 highlight["patch"] = "h" if clip_patch == "Home" else "a"
+            if event_add_second_angle:
+                highlight["second_angle_replay"] = "h" if event_second_angle_camera == "Home" else "a"
             
             st.session_state.highlights_list.append(highlight)
             st.success(f"✓ Added event: {event_text}")
@@ -863,13 +876,13 @@ if st.button("Generate and Preview Highlight Video"):
                 else:
                     resolved_replays_a = None
 
-                if resolved_replays_h and resolved_replays_a:
-                    replays = {
-                        "time_h": replays_h_time,
-                        "path_h": str(resolved_replays_h),
-                        "time_a": replays_a_time,
-                        "path_a": str(resolved_replays_a),
-                    }
+                replays = {}
+                if resolved_replays_h:
+                    replays.update({"time_h": replays_h_time, "path_h": str(resolved_replays_h)})
+                if resolved_replays_a:
+                    replays.update({"time_a": replays_a_time, "path_a": str(resolved_replays_a)})
+                if not replays:
+                    replays = None
 
             fix_scores = st.session_state.fix_scores_list
 
@@ -946,7 +959,7 @@ if st.button("Generate and Preview Highlight Video"):
 # Thumbnail Generation
 st.header("Generate Thumbnail")
 thumbnail_time = st.number_input(
-    "Thumbnail timestamp (seconds, optional)",
+    "Thumbnail timestamp (MM.SS, optional)",
     min_value=0.0,
     value=st.session_state.get("thumbnail_time", 0.0),
     step=0.01,
@@ -965,7 +978,7 @@ if st.button("Generate Thumbnail", key="generate_thumbnail"):
             non_bibs_logo_thumb = non_bibs_logo.name if non_bibs_logo else (non_bibs_logo_text or str(DEFAULT_NON_BIBS_LOGO))
             bibs_logo_thumb = bibs_logo.name if bibs_logo else (bibs_logo_text or str(DEFAULT_BIBS_LOGO))
 
-            frame_time = thumbnail_time if thumbnail_time and thumbnail_time > 0 else None
+            frame_time = mm_ss_to_seconds(thumbnail_time, specific=True) if thumbnail_time and thumbnail_time > 0 else None
 
             # Resolve forest logo (use Random Forest logo instead of team logo at top)
             forest_logo = str(RANDOM_FOREST_LOGO)
